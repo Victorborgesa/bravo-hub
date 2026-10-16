@@ -268,6 +268,30 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
   const r = Math.max(2, Math.round(Math.min(w, h) * 0.004));
   const alpha = refineEdges(union, guide, r);
 
+  // Zona de contato: perna dentro da água, reflexo, respingo, almofada que
+  // afundou. O segmentador não chama isso de "pessoa", mas faz parte dela.
+  {
+    const contact = plane(w, h);
+    for (const [x0, y0, x1, y1] of boxes) {
+      const bw = x1 - x0, bh = y1 - y0;
+      const cx0 = Math.max(0, Math.round(x0 - bw * 0.25)), cx1 = Math.min(w - 1, Math.round(x1 + bw * 0.25));
+      const cy0 = Math.max(0, Math.round(y0 + bh * 0.4)), cy1 = Math.min(h - 1, Math.round(y1 + bh * 0.45));
+      for (let y = cy0; y <= cy1; y++) {
+        // Some suavemente para baixo, para não virar um retângulo.
+        const solid = y1 + bh * 0.2;
+        const fall = y <= solid ? 1 : 1 - (y - solid) / Math.max(1, cy1 - solid);
+        for (let x = cx0; x <= cx1; x++) {
+          const i = y * w + x;
+          const d = diff.v[i];
+          if (d < 0.12) continue;
+          contact.v[i] = Math.max(contact.v[i], Math.min(1, (d - 0.12) / 0.35) * fall);
+        }
+      }
+    }
+    const soft = blur(contact, Math.max(1, Math.round(r / 2)));
+    for (let i = 0; i < n; i++) alpha.v[i] = Math.max(alpha.v[i], Math.min(0.97, soft.v[i]));
+  }
+
   if (o.shadow) {
     // Sombra de contato e projetada: onde o resultado ficou mais escuro que o
     // original, perto dos pés de cada objeto.

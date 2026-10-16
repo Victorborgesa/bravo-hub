@@ -131,38 +131,52 @@ const INTEGRATION: Record<Integration, string> = {
 const FOOTER =
   "KEEP: Everything outside the edit stays exactly as in the original -- framing, camera angle and lens, perspective, architecture, materials, colors, lighting and every person outside the edit. The result reads as one single, unretouched architectural photograph.";
 
-function rolesText(n: number) {
-  if (!n) return "Edit this architectural photograph.";
-  if (n === 1) return "You receive two images. Image 1 is a REFERENCE for appearance only. Image 2 is the SCENE: an architectural photograph to edit. Return only the edited scene.";
-  return `You receive ${n + 1} images. Images 1 to ${n} are REFERENCES for appearance only, each one a different subject. Image ${n + 1} is the SCENE: an architectural photograph to edit. Return only the edited scene.`;
+/** Papel de cada imagem enviada: exemplos, guia de posição e a cena. */
+function rolesText(n: number, guide = false) {
+  const scene = n + (guide ? 2 : 1);
+  if (!n && !guide) return "Edit this architectural photograph.";
+  const parts = [`You receive ${scene} images.`];
+  if (n === 1) parts.push("Image 1 is a REFERENCE for appearance only.");
+  else if (n > 1) parts.push(`Images 1 to ${n} are REFERENCES for appearance only, each one a different subject.`);
+  if (guide)
+    parts.push(
+      `Image ${n + 1} is a PLACEMENT GUIDE: the same scene with the edit area tinted red. Use it only to know where the edit goes; never copy the red tint.`,
+    );
+  parts.push(`Image ${scene} is the SCENE: an architectural photograph to edit.`);
+  if (guide)
+    parts.push(
+      `Make the edit only inside the red area of image ${n + 1}, and size and arrange everything you add so that all of it -- whole bodies, feet and hands included -- fits inside that area.`,
+    );
+  parts.push("Return only the edited scene, clean, with no red tint.");
+  return parts.join(" ");
 }
 
-function referenceText(n: number) {
+function referenceText(n: number, guide = false) {
   if (!n) return "";
   const which = n === 1 ? "image 1" : `images 1 to ${n}`;
   const each = n === 1 ? "" : "Each reference is a different subject: give each one its own face, hair and clothing, exactly as in its own image. ";
-  return `REFERENCE: From ${which} take only the appearance of what is requested -- face, hair, clothing, shape and color. ${each}Light it, place it and size it according to image ${n + 1}, so it looks photographed in that scene.`;
+  return `REFERENCE: From ${which} take only the appearance of what is requested -- face, hair, clothing, shape and color. ${each}Light it, place it and size it according to image ${n + (guide ? 2 : 1)}, so it looks photographed in that scene.`;
 }
 
 /** Papel das imagens, tarefa, pedido do usuário, integração e preservação, nessa ordem. */
-export function composePrompt(category: string, action: string, instruction: string, refs: number): string {
+export function composePrompt(category: string, action: string, instruction: string, refs: number, guide = false): string {
   const entry = ACTIONS[category]?.find((a) => a[0] === action);
   const base = entry?.[1] ?? "";
   const extra = instruction.trim();
   if (!base && !extra) return "";
-  const parts = [rolesText(refs)];
+  const parts = [rolesText(refs, guide)];
   if (base) parts.push(`TASK: ${base}`);
   if (extra) parts.push(`${base ? "DETAILS" : "TASK"} (written in Portuguese, follow it exactly): "${extra.replace(/"/g, "'")}"`);
-  if (refs) parts.push(referenceText(refs));
+  if (refs) parts.push(referenceText(refs, guide));
   parts.push(INTEGRATION[entry?.[2] ?? "livre"]);
   parts.push(FOOTER);
   return parts.join("\n\n");
 }
 
 /** Pedido escrito pelo diretor, com os papéis das imagens e a cláusula de preservação. */
-export function wrapDirected(text: string, refs: number, inpaint: boolean): string {
+export function wrapDirected(text: string, refs: number, inpaint: boolean, guide = false): string {
   if (inpaint) return text;
-  return [rolesText(refs), text, refs ? referenceText(refs) : "", FOOTER].filter(Boolean).join("\n\n");
+  return [rolesText(refs, guide), text, refs ? referenceText(refs, guide) : "", FOOTER].filter(Boolean).join("\n\n");
 }
 
 /** Tipo de integração do pronto escolhido (inserir, remover…). */

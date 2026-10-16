@@ -281,6 +281,25 @@ async function prepare(o: EditOptions): Promise<Prepared> {
   return { original, rect, aspect, out, tier };
 }
 
+/** O gerador usa um guia de posição? Só quem aceita várias imagens. */
+const usesGuide = (o: EditOptions) => o.engine.kind !== "inpaint" && o.engine.imagesField !== "input_image";
+
+/** Guia de posição para o gerador: a cena com a área tingida de vermelho. */
+async function guideBlob(o: EditOptions, p: Prepared) {
+  const c = canvas(p.out.w, p.out.h);
+  const g = c.getContext("2d")!;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(p.original, p.rect.x, p.rect.y, p.rect.w, p.rect.h, 0, 0, p.out.w, p.out.h);
+  const tint = canvas(p.out.w, p.out.h);
+  const tg = tint.getContext("2d")!;
+  tg.drawImage(o.mask, p.rect.x, p.rect.y, p.rect.w, p.rect.h, 0, 0, p.out.w, p.out.h);
+  tg.globalCompositeOperation = "source-in";
+  tg.fillStyle = "rgba(255, 0, 0, 0.5)";
+  tg.fillRect(0, 0, p.out.w, p.out.h);
+  g.drawImage(tint, 0, 0);
+  return toBlob(c, "image/jpeg", 0.9);
+}
+
 /** A cena como o diretor vê: a área da edição em laranja, o resto um pouco apagado. */
 async function directorView(o: EditOptions, p: Prepared) {
   const k = Math.min(1, 1024 / Math.max(p.rect.w, p.rect.h));
@@ -317,13 +336,13 @@ async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promis
   if (o.director) {
     ctx.onStatus?.("Diretor lendo a cena…");
     const directed = await directPrompt(
-      { engine: o.engine, category: o.category, action: o.action, instruction: o.instruction, references: refs, scene: await directorView(o, p) },
+      { engine: o.engine, category: o.category, action: o.action, instruction: o.instruction, references: refs, guide: usesGuide(o), scene: await directorView(o, p) },
       ctx,
     );
-    if ("text" in directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint"), directed: true, props: directed.props };
+    if ("text" in directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint", usesGuide(o)), directed: true, props: directed.props };
     directorError = directed.error;
   }
-  const prompt = composePrompt(o.category, o.action, o.instruction, refs);
+  const prompt = composePrompt(o.category, o.action, o.instruction, refs, usesGuide(o));
   if (!prompt) throw new Error("Escolha um pronto ou escreva o que você quer.");
   return { prompt, directed: false, directorError, props: propsFromText(o.instruction) };
 }
@@ -356,7 +375,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   // O diretor (Google) e o envio da cena (Replicate) não dependem um do
   // outro: correm juntos.
   ctx.onStatus?.(o.director && !o.promptOverride ? "Diretor lendo a cena e enviando…" : "Enviando a cena…");
-  const [{ prompt, props, directorError }, { sceneUrl, refUrls, maskUrl }] = await Promise.all([
+  const [{ prompt, props, directorError }, { sceneUrl, refUrls, maskUrl, guideUrl }] = await Promise.all([
     timed("diretor", buildPrompt(o, prep, { ...ctx, onStatus: undefined })),
     timed(
       "envio",
@@ -366,7 +385,8 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
           ? await Promise.all(o.references.map(async (r, i) => replicateUpload(await mediaBlob(r), `referencia-${i + 1}.png`, ctx)))
           : [];
         const maskUrl = o.engine.kind === "inpaint" ? await replicateUpload(await maskBlob(o.mask, rect, out), "mascara.png", ctx) : undefined;
-        return { sceneUrl, refUrls, maskUrl };
+        const guideUrl = usesGuide(o) ? await replicateUpload(await guideBlob(o, prep), "guia.jpg", ctx) : undefined;
+        return { sceneUrl, refUrls, maskUrl, guideUrl };
       })(),
     ),
   ]);
@@ -377,8 +397,8 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   } else if (o.engine.imagesField === "input_image") {
     Object.assign(input, { input_image: sceneUrl, output_format: "png", aspect_ratio: "match_input_image" });
   } else {
-    // Referências primeiro, a cena por último: o pedido diz quem é quem.
-    input[o.engine.imagesField ?? "image_input"] = [...refUrls, sceneUrl];
+    // Referências, guia de posição e a cena por último: o pedido diz quem é quem.
+    input[o.engine.imagesField ?? "image_input"] = [...refUrls, ...(guideUrl ? [guideUrl] : []), sceneUrl];
     if (aspect) input.aspect_ratio = aspect;
     if (o.engine.outputFormat) input.output_format = o.engine.outputFormat;
     if (o.engine.tier && tier) input[o.engine.tier.field] = tier;
@@ -411,17 +431,18 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   // inteira (que cortaria quem passou da borda).
   const placement = o.placement === "object" && !objectName ? "changed" : o.placement;
   const adding = integrationOf(o.category, o.action) === "inserir";
-  // O que já existia na cena é procurado uma vez só (depois da primeira
-  // geração, uma chamada por vez, para não esbarrar no limite do Replicate).
-  let existing: ImageBitmap[] | null | undefined;
   const segmentOnce = async (url: string, what: string) => {
-    const r = await timed("recorte", findObjects(url, what, ctx)).catch((e) => {
+    const r = await findObjects(url, what, ctx).catch((e) => {
       if (ctx.signal?.aborted) throw e;
       return { masks: [] as ImageBitmap[], calls: 0 };
     });
     if (r.calls) record(segModel, r.calls, true);
     return r.masks;
   };
+  // O que já existia na cena é procurado enquanto a imagem é gerada. De
+  // quebra, isso acorda o recortador, que demora quando está frio.
+  const existingP: Promise<ImageBitmap[] | null> = wantsObject && adding ? segmentOnce(sceneUrl, objectName) : Promise.resolve(null);
+  existingP.catch(() => null);
 
   for (let call = 0; call < calls; call++) {
     ctx.onStatus?.(calls > 1 ? `Gerando variação ${call + 1} de ${calls}…` : "Gerando…");
@@ -438,11 +459,11 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
 
       if (wantsObject) {
         ctx.onStatus?.("Recortando o contorno…");
-        const found = { masks: await segmentOnce(url, objectName) };
-        if (existing === undefined) existing = adding && found.masks.length ? await segmentOnce(sceneUrl, objectName) : null;
+        const found = { masks: await timed("recorte", segmentOnce(url, objectName)) };
+        const existing = await timed("recorte", existingP);
         const attached: ImageBitmap[] = [];
         if (found.masks.length && objectName !== props.join(", ")) {
-          for (const prop of props) attached.push(...(await segmentOnce(url, prop)));
+          for (const prop of props) attached.push(...(await timed("recorte", segmentOnce(url, prop))));
         }
         // Tamanho de trabalho: o do resultado, limitado para não pesar.
         const k = Math.min(1, 2048 / Math.max(result.width, result.height));
