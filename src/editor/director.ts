@@ -51,15 +51,15 @@ const FORMAT: Record<string, string> = {
 
 /**
  * Ordem de tentativa. O Flash Lite responde em poucos segundos e escreve bem
- * esse tipo de texto; os outros ficam de reserva. Cada um tem 30 s: passou
+ * esse tipo de texto; os outros ficam de reserva. Cada um tem 20 s: passou
  * disso, segue para o próximo em vez de travar a geração.
  */
-const ATTEMPTS: { id: string; apiModel?: string; label?: string }[] = [
-  { id: "gemini-flash", apiModel: "gemini-flash-lite-latest", label: "Gemini Flash Lite" },
+const ATTEMPTS: { id: string; apiModel?: string; label?: string; fast?: boolean }[] = [
+  { id: "gemini-flash", apiModel: "gemini-flash-lite-latest", label: "Gemini Flash Lite", fast: false },
   { id: "gemini-flash" },
   { id: "gpt-text" },
 ];
-const ATTEMPT_MS = 30_000;
+const ATTEMPT_MS = 20_000;
 
 export interface DirectorInput {
   engine: EditEngine;
@@ -120,7 +120,7 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<D
       const relay = () => ctrl.abort();
       ctx.signal?.addEventListener("abort", relay, { once: true });
       try {
-        const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene], fast: true }, { ...ctx, signal: ctrl.signal })).trim();
+        const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene], fast: a.fast ?? true }, { ...ctx, signal: ctrl.signal })).trim();
         if (text.length < 40) {
           errors.push(`${model.label} respondeu vazio`);
           continue;

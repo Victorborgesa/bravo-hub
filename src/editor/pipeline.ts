@@ -285,10 +285,11 @@ async function prepare(o: EditOptions): Promise<Prepared> {
 }
 
 /** O gerador usa um guia de posição? Só quem aceita várias imagens. */
-// Desligado: mandar a área como imagem (tingida ou em preto e branco) fez os
-// geradores copiarem a marcação para a cena (mancha, traço, retângulo claro).
-// A posição agora vai por texto (placementText) e o recorte cuida do resto.
-const usesGuide = (_o: EditOptions) => false;
+// A máscara-guia em preto e branco é o que faz a IA sentar as pessoas no lugar
+// certo (sem ela, escolhe sozinha e põe na água). O efeito colateral, a IA
+// clarear ou riscar a área, é barrado no recorte (zona de contato só aceita
+// mudança com forma; traço branco e vermelho de marcação ficam de fora).
+const usesGuide = (o: EditOptions) => o.engine.kind !== "inpaint" && o.engine.imagesField !== "input_image";
 
 /** Onde fica a área marcada dentro da imagem enviada, em palavras. */
 function placementText(o: EditOptions, p: Prepared): string {
