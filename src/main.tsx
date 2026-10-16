@@ -8,6 +8,7 @@ import "@fontsource/jetbrains-mono/500.css";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/motion.css";
+import "./styles/editor.css";
 import { App } from "./App";
 import { useSpaces } from "./store/spaces";
 import { useRuns } from "./store/runs";

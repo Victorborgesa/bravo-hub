@@ -37,6 +37,7 @@ function defaults(kind: NodeKind): BaseNodeData {
     case "image": return { modelId: modelsFor("image")[0].id, prompt: "", aspect: "1:1", count: 1, gallery: [] };
     case "video": return { modelId: modelsFor("video")[0].id, prompt: "", aspect: "16:9", duration: 8, gallery: [] };
     case "upscale": return { scale: 2, creativity: 0.35, gallery: [] };
+    case "edit": return { gallery: [] };
   }
 }
 

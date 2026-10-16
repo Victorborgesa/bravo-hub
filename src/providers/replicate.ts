@@ -68,3 +68,38 @@ export async function clarityUpscale(job: UpscaleJob, ctx: JobContext): Promise<
   if (!urls.length) throw new ProviderError("replicate", "Upscale concluído sem imagem.");
   return Promise.all(urls.map((u) => saveRemote(u, "image/png", { model: model.label, prompt: `Upscale ${job.scale}x` })));
 }
+
+// ---------------------------------------------------------------------------
+// Execução genérica de modelos do Replicate (usada pelo Editor).
+
+/** Envia bytes para o armazenamento de arquivos do Replicate e devolve a URL. */
+export async function replicateUpload(blob: Blob, fileName: string, ctx: JobContext): Promise<string> {
+  const auth = `Bearer ${await requireSecret("replicate", "replicate")}`;
+  const form = new FormData();
+  form.append("content", blob, fileName);
+  const res = await requestJson<{ urls?: { get?: string } }>("replicate", `${BASE}/files`, { method: "POST", headers: { Authorization: auth }, body: form }, ctx);
+  if (!res.urls?.get) throw new ProviderError("replicate", "Não consegui enviar a imagem para o Replicate.");
+  return res.urls.get;
+}
+
+/**
+ * Roda um modelo e devolve as URLs de saída. Modelos oficiais são chamados por
+ * "dono/nome"; os da comunidade, pelo hash da versão.
+ */
+export async function replicateRun(
+  target: { model?: string; version?: string },
+  input: Record<string, unknown>,
+  ctx: JobContext,
+): Promise<string[]> {
+  const h = { Authorization: `Bearer ${await requireSecret("replicate", "replicate")}`, "Content-Type": "application/json" };
+  const url = target.model ? `${BASE}/models/${target.model}/predictions` : `${BASE}/predictions`;
+  const body = target.model ? { input } : { version: target.version, input };
+  const created = await requestJson<Prediction>("replicate", url, { method: "POST", headers: h, body: JSON.stringify(body) }, ctx);
+  const done = await poll(async () => {
+    const p = await requestJson<Prediction>("replicate", `${BASE}/predictions/${created.id}`, { headers: h }, ctx);
+    if (p.status === "failed" || p.status === "canceled") throw new ProviderError("replicate", p.error ?? "Falha na geração");
+    return p.status === "succeeded" ? p : null;
+  }, ctx, { interval: 2500 });
+  const out = done.output;
+  return (Array.isArray(out) ? out : out ? [out] : []).filter((u): u is string => typeof u === "string");
+}

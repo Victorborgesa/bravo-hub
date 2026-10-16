@@ -1,4 +1,4 @@
-import { Type, ListOrdered, Sparkles, Upload, Image, Clapperboard, Maximize2 } from "lucide-react";
+import { Type, ListOrdered, Sparkles, Upload, Image, Clapperboard, Maximize2, Brush } from "lucide-react";
 import type { NodeKind } from "../ports";
 
 const ICONS = {
@@ -9,6 +9,7 @@ const ICONS = {
   image: Image,
   video: Clapperboard,
   upscale: Maximize2,
+  edit: Brush,
 } satisfies Record<NodeKind, unknown>;
 
 export function NodeIcon({ kind, size = 14 }: { kind: NodeKind; size?: number }) {

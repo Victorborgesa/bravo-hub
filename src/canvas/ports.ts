@@ -1,7 +1,7 @@
 import type { MediaRef } from "../lib/media";
 
 export type PortType = "text" | "image" | "video";
-export type NodeKind = "text" | "list" | "assistant" | "upload" | "image" | "video" | "upscale";
+export type NodeKind = "text" | "list" | "assistant" | "upload" | "image" | "video" | "upscale" | "edit";
 
 export interface Port {
   type: PortType;
@@ -27,6 +27,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
   upload: { kind: "upload", category: "Mídia", title: "Upload", hint: "Imagens do seu computador", inputs: [], outputs: [{ type: "image", label: "Imagem" }], runnable: false },
   image: { kind: "image", category: "Imagem", title: "Gerador de imagem", hint: "Texto e referências viram imagem", inputs: [{ type: "text", label: "Prompt" }, { type: "image", label: "Referências" }], outputs: [{ type: "image", label: "Imagem" }], runnable: true },
   video: { kind: "video", category: "Vídeo", title: "Gerador de vídeo", hint: "Texto ou imagem viram vídeo", inputs: [{ type: "text", label: "Prompt" }, { type: "image", label: "Quadro inicial" }], outputs: [{ type: "video", label: "Vídeo" }], runnable: true },
+  edit: { kind: "edit", category: "Imagem", title: "Editor", hint: "Edição localizada com seleção, como o Modify AI", inputs: [{ type: "image", label: "Imagem" }], outputs: [{ type: "image", label: "Imagem" }], runnable: false },
   upscale: { kind: "upscale", category: "Imagem", title: "Upscale", hint: "Clarity Upscaler", inputs: [{ type: "image", label: "Imagem" }], outputs: [{ type: "image", label: "Imagem" }], runnable: true },
 };
 

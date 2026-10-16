@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronDown, Download, Expand, Minus, Plus, Search, Sparkles } from "lucide-react";
+import { Brush, Check, ChevronDown, Download, Expand, Minus, Plus, Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { AUTO_ID, FEATURED, PROVIDERS, modelById, modelsFor } from "../../providers/catalog";
@@ -215,7 +215,7 @@ export function Stepper({ value, min = 1, max = 4, onChange }: { value: number; 
 // ---------- Prévia de mídia ----------
 
 /** Prévia principal + miniaturas. Clicar numa miniatura define a saída do node. */
-export function Preview({ items, selectedId, onSelect, empty, aspect }: { items: MediaRef[]; selectedId?: string; onSelect: (m: MediaRef) => void; empty: ReactNode; aspect?: string }) {
+export function Preview({ items, selectedId, onSelect, empty, aspect, onEdit }: { items: MediaRef[]; selectedId?: string; onSelect: (m: MediaRef) => void; empty: ReactNode; aspect?: string; onEdit?: (m: MediaRef) => void }) {
   const open = useLightbox((s) => s.open);
   const main = items.find((m) => m.id === selectedId) ?? items[0];
   const ratio = aspect?.replace(":", " / ") ?? "4 / 3";
@@ -235,6 +235,7 @@ export function Preview({ items, selectedId, onSelect, empty, aspect }: { items:
         </motion.div>
       </AnimatePresence>
       <div className="preview-actions nodrag">
+        {onEdit && main.kind === "image" && <button className="icon-btn glass" title="Editar uma área" onClick={() => onEdit(main)}><Brush size={13} /></button>}
         <button className="icon-btn glass" title="Ampliar" onClick={() => open(main)}><Expand size={13} /></button>
         <button className="icon-btn glass" title="Baixar" onClick={() => downloadMedia(main)}><Download size={13} /></button>
       </div>

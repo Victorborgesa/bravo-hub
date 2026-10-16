@@ -17,7 +17,7 @@ interface Item {
 
 const ITEMS: Item[] = [
   { key: "carregar", label: "Carregar", hint: "Imagens do computador", section: "Mídia", category: "Mídia", choice: { kind: "upload", pickFiles: true } },
-  ...(["image", "video", "assistant", "text", "list", "upscale", "upload"] as NodeKind[]).map((kind) => ({
+  ...(["image", "edit", "video", "assistant", "text", "list", "upscale", "upload"] as NodeKind[]).map((kind) => ({
     key: kind,
     label: kind === "upload" ? "Node de upload vazio" : NODE_SPECS[kind].title,
     hint: NODE_SPECS[kind].category,

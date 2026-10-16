@@ -3,7 +3,9 @@ import { ImagePlus, Loader2, Play, Plus, Settings2, Square, Trash2 } from "lucid
 import { useRef, useState, type DragEvent } from "react";
 import { NodeShell } from "./NodeShell";
 import { PromptLibrary } from "./PromptLibrary";
-import { AspectPicker, ModelPicker, OptionPicker, Preview, Stepper, useInspector } from "./controls";
+import { useEditor } from "../../editor/store";
+import { Brush } from "lucide-react";
+import { AspectPicker, MediaView, ModelPicker, OptionPicker, Preview, Stepper, useInspector } from "./controls";
 import { useSpaces, type FlowNode } from "../../store/spaces";
 import { AUTO_ID, modelById } from "../../providers/catalog";
 import { cancelNode, runNode } from "../engine";
@@ -168,6 +170,7 @@ function UploadNode({ id, data, selected }: P) {
           items={gallery}
           selectedId={data.outputs?.images?.[0]?.id}
           onSelect={(m) => update({ outputs: { images: [m] } })}
+          onEdit={(m) => useEditor.getState().openEditor(m, id)}
           empty={<button className="empty-cta nodrag" onClick={() => input.current?.click()}><ImagePlus size={20} /><span>Solte imagens aqui<br />ou clique para escolher</span></button>}
         />
       </div>
@@ -190,7 +193,7 @@ function ImageNode({ id, data, selected }: P) {
   const aspects = model?.aspects ?? ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"];
   return (
     <NodeShell id={id} kind="image" data={data} selected={selected} width={380}>
-      <Preview items={data.gallery ?? []} selectedId={data.outputs?.images?.[0]?.id} onSelect={(m) => update({ outputs: { images: [m] } })} aspect={data.aspect} empty={null} />
+      <Preview items={data.gallery ?? []} selectedId={data.outputs?.images?.[0]?.id} onSelect={(m) => update({ outputs: { images: [m] } })} aspect={data.aspect} empty={null} onEdit={(m) => useEditor.getState().openEditor(m, id)} />
       <div className="composer">
         <PromptLibrary kind="image" current={data.prompt ?? ""} onInsert={(text) => update({ prompt: text })} />
         <Connected text={incoming.text} image={incoming.image} imageLabel="referência(s)" />
@@ -260,6 +263,7 @@ function UpscaleNode({ id, data, selected }: P) {
         items={data.gallery ?? []}
         selectedId={data.outputs?.images?.[0]?.id}
         onSelect={(m) => update({ outputs: { images: [m] } })}
+        onEdit={(m) => useEditor.getState().openEditor(m, id)}
         empty={<span className="muted small">Conecte uma imagem e rode o upscale</span>}
       />
       <div className="composer">
@@ -278,7 +282,52 @@ function UpscaleNode({ id, data, selected }: P) {
   );
 }
 
+/** Imagem que chega pela entrada do node (a escolhida no node anterior). */
+function useInputImage(id: string) {
+  return useSpaces((st) => {
+    const space = st.spaces.find((s) => s.nodes.some((n) => n.id === id));
+    const edge = space?.edges.find((e) => e.target === id && e.targetHandle === "in-image");
+    const source = edge && space?.nodes.find((n) => n.id === edge.source);
+    return source?.data.outputs?.images?.[0];
+  });
+}
+
+function EditNode({ id, data, selected }: P) {
+  const update = useUpdate(id);
+  const input = useInputImage(id);
+  const gallery = data.gallery ?? [];
+  // Continua editando sobre a última versão aplicada; sem nenhuma, parte da entrada.
+  const base = data.outputs?.images?.[0] ?? input;
+  const open = () => base && useEditor.getState().openEditor(base, id);
+  return (
+    <NodeShell id={id} kind="edit" data={data} selected={selected} width={340}>
+      <Preview
+        items={gallery}
+        selectedId={data.outputs?.images?.[0]?.id}
+        onSelect={(m) => update({ outputs: { images: [m] } })}
+        onEdit={(m) => useEditor.getState().openEditor(m, id)}
+        empty={
+          input ? (
+            <button className="edit-empty nodrag" onClick={open}>
+              <MediaView media={input} />
+              <span><Brush size={16} /> Selecionar uma área e editar</span>
+            </button>
+          ) : (
+            <span className="muted small">Conecte uma imagem para editar</span>
+          )
+        }
+      />
+      <div className="composer-bar padded">
+        <span className="muted small">{gallery.length ? `${gallery.length} versão(ões)` : "Inpainting com seleção"}</span>
+        <span className="grow" />
+        <button className="pill nodrag" disabled={!base} onClick={open}><Brush size={12} /> Abrir editor</button>
+      </div>
+    </NodeShell>
+  );
+}
+
 export const nodeTypes: NodeTypes = {
+  edit: EditNode,
   text: TextNode,
   list: ListNode,
   assistant: AssistantNode,

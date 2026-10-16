@@ -22,6 +22,8 @@ import { runSelection, runSpace } from "./engine";
 import { Palette, type PaletteChoice } from "./Palette";
 import { Inspector } from "./Inspector";
 import { RunPanel } from "./RunPanel";
+import { EditorModal } from "../editor/EditorModal";
+import { useEditor } from "../editor/store";
 import { useActiveSpace, useSpaces } from "../store/spaces";
 import { useCosts } from "../store/costs";
 import { formatUsd } from "../lib/format";
@@ -54,6 +56,9 @@ export function Lightbox() {
                 {media.prompt && <p>{media.prompt}</p>}
               </div>
               <div className="lightbox-actions">
+                {media.kind === "image" && useSpaces.getState().activeId && (
+                  <button className="btn" onClick={() => { open(null); useEditor.getState().openEditor(media); }}>Editar área</button>
+                )}
                 <button className="btn" onClick={() => downloadMedia(media)}>Baixar</button>
                 <button className="icon-btn" onClick={() => open(null)}><X size={18} /></button>
               </div>
@@ -256,6 +261,7 @@ function Canvas() {
       <ZoomControl showMap={showMap} toggleMap={() => setShowMap((m) => !m)} />
       <SelectionBar />
       <RunPanel />
+      <EditorModal />
       <Inspector />
 
       <AnimatePresence>
