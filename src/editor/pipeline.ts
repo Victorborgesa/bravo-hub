@@ -9,6 +9,7 @@ import { useCosts } from "../store/costs";
 import { composePrompt, engineCost, integrationOf, nearestAspect, propsFromText, SAM3_COST, tierForSize, wrapDirected, type EditEngine } from "./engines";
 import { directPrompt, splitProps } from "./director";
 import { applyWarp, chain, describeWarp, estimateWarp, isIdentity, refineLocal } from "./align";
+import { applyTone, describeTone, isNeutral, measureTone } from "./tone";
 import { alphaPlane, buildObjectMask, findObjects, planeToCanvas } from "./segment";
 
 export interface Rect {
@@ -302,7 +303,7 @@ function placementText(o: EditOptions, p: Prepared): string {
   const vt = cy < 0.38 ? "upper" : cy > 0.62 ? "lower" : "middle";
   const where = hz === "center" && vt === "middle" ? "the center of the image" : `the ${vt} ${hz} part of the image`;
   const pct = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 100);
-  return `PLACEMENT: Everything you add goes in ${where}, inside the box from ${pct(fx0)}% to ${pct(fx1)}% of the width (from the left) and ${pct(fy0)}% to ${pct(fy1)}% of the height (from the top). Arrange it so all of it, whole bodies included, fits in that box. The box is a limit, not a size to fill: keep real-world scale against the nearby lounge chairs, doors, railings and steps, and leave empty space around the subjects if they are smaller than the box. Seat or stand them exactly on the surfaces already in the scene, at the same height and position as those surfaces in the original.`;
+  return `PLACEMENT: Everything you add goes in ${where}, inside the box from ${pct(fx0)}% to ${pct(fx1)}% of the width (from the left) and ${pct(fy0)}% to ${pct(fy1)}% of the height (from the top). Arrange it so all of it, whole bodies included, fits in that box. The box is a limit, not a size to fill: keep real-world scale against the nearby lounge chairs, doors, railings and steps, and leave empty space around the subjects if they are smaller than the box. Seat or stand them exactly on the surfaces already in the scene, at the same height and position as those surfaces in the original. Light them only with the light already in the scene: they are no brighter and no more contrasted than the surfaces right around them, with the same exposure, white balance and shadow depth.`;
 }
 
 const withPlacement = (prompt: string, place: string) =>
@@ -485,7 +486,11 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
       const local = refineLocal(origAtRaw, pass1, grown, box, { ow: raw.width, oh: raw.height, rw: raw.width, rh: raw.height, ew: rect.w, eh: rect.h });
       const warp = chain(global, local);
       const alignInfo = `${describeWarp(global, raw.width, raw.height)}${isIdentity(local) ? "" : ` + local ${describeWarp(local, raw.width, raw.height)}`}`;
-      const result: CanvasImageSource = isIdentity(warp) ? raw : applyWarp(raw, raw.width, raw.height, warp);
+      const aligned: CanvasImageSource = isIdentity(warp) ? raw : applyWarp(raw, raw.width, raw.height, warp);
+      // Mesma luz do render: desfaz o quanto a IA clareou ou esquentou a cena.
+      const tone = measureTone(origAtRaw, aligned, grown, box, { w: raw.width, h: raw.height, ew: rect.w, eh: rect.h });
+      const result: CanvasImageSource = isNeutral(tone) ? aligned : applyTone(aligned, raw.width, raw.height, tone);
+      const toneInfo = describeTone(tone);
       const fixMask = (m: ImageBitmap): CanvasImageSource => (isIdentity(warp) ? m : applyWarp(m, raw.width, raw.height, warp));
       timings.push(["alinhamento", (performance.now() - t1) / 1000]);
       let alpha = selAlpha;
@@ -548,7 +553,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
         })(),
       );
       if (directorError && o.director && !o.promptOverride) note = [note, `Diretor de prompt não respondeu (${directorError}); usei o pedido padrão.`].filter(Boolean).join(" ");
-      const r: EditResult = { media, prompt, cutout, note, alignInfo, timings: timings.map(([l, s]) => [l, Math.round(s * 10) / 10]) };
+      const r: EditResult = { media, prompt, cutout, note, alignInfo: toneInfo ? `${alignInfo} · ${toneInfo}` : alignInfo, timings: timings.map(([l, s]) => [l, Math.round(s * 10) / 10]) };
       results.push(r);
       ctx.onResult?.(r);
     }

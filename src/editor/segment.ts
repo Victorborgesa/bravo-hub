@@ -60,16 +60,22 @@ export function redShift(a: CanvasImageSource, b: CanvasImageSource, w: number, 
     // Traço branco puro que não existia (contorno da máscara copiado).
     const lo = Math.min(db[i], db[i + 1], db[i + 2]), hi = Math.max(db[i], db[i + 1], db[i + 2]);
     const la = (da[i] + da[i + 1] + da[i + 2]) / 3;
-    const whiteLine = lo > 215 && hi - lo < 28 && lo - la > 60;
-    // Área que ficou mais clara e mais "lavada" (menos cor) que o original: é a
-    // IA clareando a região marcada. Pele, reflexo colorido e sombra não caem aqui.
-    const lumA = (0.2126 * da[i] + 0.7152 * da[i + 1] + 0.0722 * da[i + 2]) / 255;
-    const lumB = (0.2126 * db[i] + 0.7152 * db[i + 1] + 0.0722 * db[i + 2]) / 255;
-    const satA = (Math.max(da[i], da[i + 1], da[i + 2]) - Math.min(da[i], da[i + 1], da[i + 2])) / Math.max(1, Math.max(da[i], da[i + 1], da[i + 2]));
-    const satB = (hi - lo) / Math.max(1, hi);
-    const washed = lumB - lumA > 0.07 && satB < satA * 0.7 + 0.03;
-    p.v[j] = whiteLine || washed ? 1 : marking ? Math.max(0, (rb - ra) / 255) : 0;
+    const whiteLine = lo > 215 && hi - lo < 28 && lo - la > 60; // candidato; a espessura é conferida abaixo
+    // (Um filtro de "trecho desbotado" chegou a existir aqui, mas cortava roupa
+    // branca dentro da água. As laterais já ficam de fora pela largura das pernas.)
+    p.v[j] = whiteLine ? 2 : marking ? Math.max(0, (rb - ra) / 255) : 0;
   }
+  // Traço = branco fino (até ~5 px). Bloco branco (calça, toalha) não é traço.
+  const cand = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && p.v[y * w + x] === 2;
+  const out = new Float32Array(p.v.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (p.v[i] !== 2) out[i] = p.v[i];
+      else out[i] = (!cand(x, y - 3) && !cand(x, y + 3)) || (!cand(x - 3, y) && !cand(x + 3, y)) ? 1 : 0;
+    }
+  }
+  p.v = out;
   return p;
 }
 
@@ -327,10 +333,11 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
       const bw = x1 - x0, bh = y1 - y0;
       const [lx0, lx1] = lower[k];
       const cx0 = Math.max(0, Math.round(lx0 - bw * 0.08)), cx1 = Math.min(w - 1, Math.round(lx1 + bw * 0.08));
-      const cy0 = Math.max(0, Math.round(y0 + bh * 0.4)), cy1 = Math.min(h - 1, Math.round(y1 + bh * 0.45));
+      // Embaixo: pernas na água e o reflexo, que pode descer quase meio corpo.
+      const cy0 = Math.max(0, Math.round(y0 + bh * 0.4)), cy1 = Math.min(h - 1, Math.round(y1 + bh * 0.6));
       for (let y = cy0; y <= cy1; y++) {
         // Some suavemente para baixo, para não virar um retângulo.
-        const solid = y1 + bh * 0.2;
+        const solid = y1 + bh * 0.3;
         const fall = y <= solid ? 1 : 1 - (y - solid) / Math.max(1, cy1 - solid);
         for (let x = cx0; x <= cx1; x++) {
           const i = y * w + x;
