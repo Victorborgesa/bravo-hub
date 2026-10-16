@@ -131,7 +131,10 @@
 
 /* Zoom da cena */
 .editor-stage { overflow: hidden; }
-.editor-frame { transform-origin: center; will-change: transform; }
+/* Sem will-change: com ele o navegador amplia uma cópia pequena da imagem e o zoom
+   fica borrado. Sem ele, a imagem é redesenhada na resolução real a cada zoom. */
+.editor-frame { transform-origin: center; }
+.editor-frame > img, .editor-after img { image-rendering: auto; }
 .editor-stage.is-panning .editor-mask { cursor: grab; }
 .editor-stage.is-panning .editor-mask:active { cursor: grabbing; }
 .editor-results, .result-info { position: relative; z-index: 2; }

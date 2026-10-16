@@ -1,5 +1,6 @@
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { Splash } from "./brand/Splash";
 import { Sidebar, type View } from "./views/Sidebar";
 import { SpacesHome } from "./views/SpacesHome";
 import { Library } from "./views/Library";
@@ -48,6 +49,9 @@ function Toasts() {
 
 export function App() {
   const [view, setView] = useState<View>("spaces");
+  // Abertura com o logo em 3D, uma vez por abertura do app.
+  const [intro, setIntro] = useState(true);
+  const endIntro = useCallback(() => setIntro(false), []);
   const activeId = useSpaces((s) => s.activeId);
   const open = useSpaces((s) => s.open);
   const Page = PAGES[view];
@@ -87,6 +91,7 @@ export function App() {
       <Toasts />
       <UpdateBanner />
     </div>
+    <AnimatePresence>{intro && <Splash key="splash" onDone={endIntro} />}</AnimatePresence>
     </MotionConfig>
   );
 }
