@@ -122,3 +122,56 @@ export function applyWarp(src: CanvasImageSource, w: number, h: number, warp: Wa
   g.drawImage(src, warp.tx * w, warp.ty * h, w * warp.s, h * warp.s);
   return c;
 }
+
+/** Aplica `a` e depois `b` (ambos em frações da cena enviada). */
+export function chain(a: Warp, b: Warp): Warp {
+  return { s: a.s * b.s, tx: b.tx + b.s * a.tx, ty: b.ty + b.s * a.ty };
+}
+
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Ajuste fino só em volta da edição. A IA às vezes mantém o quadro geral e
+ * escorrega a geometria num trecho (a borda da piscina desce alguns pixels
+ * justamente onde ela sentou as pessoas). Aqui a comparação usa um anel ao
+ * redor da área marcada, em resolução maior, e devolve a correção já em
+ * coordenadas da cena inteira.
+ *
+ * @param original recorte da cena original (qualquer tamanho)
+ * @param result resultado já com o ajuste global
+ * @param exclude área editada com folga (alfa), no mesmo enquadramento
+ * @param box área marcada, em frações da cena enviada
+ */
+export function refineLocal(original: CanvasImageSource, result: CanvasImageSource, exclude: CanvasImageSource, box: Box, sizes: { ow: number; oh: number; rw: number; rh: number; ew: number; eh: number }): Warp {
+  // Vizinhança: a área marcada mais 70% de cada lado.
+  const bx = Math.max(0, box.x - box.w * 0.7), by = Math.max(0, box.y - box.h * 0.7);
+  const bw = Math.min(1, box.x + box.w * 1.7) - bx, bh = Math.min(1, box.y + box.h * 1.7) - by;
+  if (bw <= 0 || bh <= 0) return IDENTITY;
+  const lw = 320, lh = Math.max(40, Math.round((lw * bh * sizes.oh) / (bw * sizes.ow)));
+  const crop = (src: CanvasImageSource, sw: number, sh: number) => {
+    const c = document.createElement("canvas");
+    c.width = lw;
+    c.height = lh;
+    const g = c.getContext("2d")!;
+    g.imageSmoothingQuality = "high";
+    g.drawImage(src, bx * sw, by * sh, bw * sw, bh * sh, 0, 0, lw, lh);
+    return c;
+  };
+  const local = estimateWarp(crop(original, sizes.ow, sizes.oh), crop(result, sizes.rw, sizes.rh), crop(exclude, sizes.ew, sizes.eh), lw / lh);
+  if (isIdentity(local)) return IDENTITY;
+  // Traz a correção do recorte local para a cena inteira.
+  return { s: local.s, tx: bx * (1 - local.s) + bw * local.tx, ty: by * (1 - local.s) + bh * local.ty };
+}
+
+/** Resumo legível do ajuste, para a linha de tempos. */
+export function describeWarp(w: Warp, width: number, height: number): string {
+  if (isIdentity(w)) return "sem ajuste";
+  const pct = (w.s - 1) * 100;
+  const dx = Math.round(w.tx * width), dy = Math.round(w.ty * height);
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% · ${dx}px ↔ · ${dy}px ↕`;
+}

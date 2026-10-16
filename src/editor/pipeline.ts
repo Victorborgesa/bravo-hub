@@ -8,7 +8,7 @@ import { ProviderError, type JobContext, type ModelDef } from "../providers/type
 import { useCosts } from "../store/costs";
 import { composePrompt, engineCost, integrationOf, nearestAspect, propsFromText, SAM3_COST, tierForSize, wrapDirected, type EditEngine } from "./engines";
 import { directPrompt, splitProps } from "./director";
-import { applyWarp, estimateWarp, isIdentity } from "./align";
+import { applyWarp, chain, describeWarp, estimateWarp, isIdentity, refineLocal } from "./align";
 import { alphaPlane, buildObjectMask, findObjects, planeToCanvas } from "./segment";
 
 export interface Rect {
@@ -51,6 +51,8 @@ export interface EditResult {
   cutout?: MediaRef;
   /** Aviso sobre como o resultado foi encaixado. */
   note?: string;
+  /** Quanto o resultado precisou ser reencaixado no original. */
+  alignInfo?: string;
   /** Quanto cada etapa levou, em segundos. */
   timings?: [string, number][];
 }
@@ -299,7 +301,7 @@ function placementText(o: EditOptions, p: Prepared): string {
   const vt = cy < 0.38 ? "upper" : cy > 0.62 ? "lower" : "middle";
   const where = hz === "center" && vt === "middle" ? "the center of the image" : `the ${vt} ${hz} part of the image`;
   const pct = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 100);
-  return `PLACEMENT: Everything you add goes in ${where}, inside the box from ${pct(fx0)}% to ${pct(fx1)}% of the width (from the left) and ${pct(fy0)}% to ${pct(fy1)}% of the height (from the top). Size and arrange it so all of it, whole bodies included, fits in that box.`;
+  return `PLACEMENT: Everything you add goes in ${where}, inside the box from ${pct(fx0)}% to ${pct(fx1)}% of the width (from the left) and ${pct(fy0)}% to ${pct(fy1)}% of the height (from the top). Arrange it so all of it, whole bodies included, fits in that box. The box is a limit, not a size to fill: keep real-world scale against the nearby lounge chairs, doors, railings and steps, and leave empty space around the subjects if they are smaller than the box. Seat or stand them exactly on the surfaces already in the scene, at the same height and position as those surfaces in the original.`;
 }
 
 const withPlacement = (prompt: string, place: string) =>
@@ -438,6 +440,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   const results: EditResult[] = [];
   const feather = Math.max(2, Math.round(Math.max(rect.w, rect.h) * 0.006));
   const selAlpha = selectionAlpha(o.mask, rect, feather);
+  const sel = maskBounds(o.mask)!;
   // Campo vazio no recorte exato: em "Pessoas" o alvo é sempre pessoa.
   const objectName = o.objectName.trim() || (o.category === "Pessoas" ? "pessoa" : "");
   const wantsObject = o.placement === "object" && objectName.length > 0;
@@ -471,7 +474,16 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
       const t1 = performance.now();
       const before0 = canvas(256, Math.max(1, Math.round((256 * rect.h) / rect.w)));
       before0.getContext("2d")!.drawImage(original, rect.x, rect.y, rect.w, rect.h, 0, 0, before0.width, before0.height);
-      const warp = estimateWarp(before0, raw, grownSelection(o.mask, rect), rect.w / rect.h);
+      const grown = grownSelection(o.mask, rect);
+      const global = estimateWarp(before0, raw, grown, rect.w / rect.h);
+      // Segunda passada só em volta da área: corrige escorregão local.
+      const pass1 = isIdentity(global) ? raw : applyWarp(raw, raw.width, raw.height, global);
+      const box = { x: (sel.x - rect.x) / rect.w, y: (sel.y - rect.y) / rect.h, w: sel.w / rect.w, h: sel.h / rect.h };
+      const origAtRaw = canvas(raw.width, raw.height);
+      origAtRaw.getContext("2d")!.drawImage(original, rect.x, rect.y, rect.w, rect.h, 0, 0, raw.width, raw.height);
+      const local = refineLocal(origAtRaw, pass1, grown, box, { ow: raw.width, oh: raw.height, rw: raw.width, rh: raw.height, ew: rect.w, eh: rect.h });
+      const warp = chain(global, local);
+      const alignInfo = `${describeWarp(global, raw.width, raw.height)}${isIdentity(local) ? "" : ` + local ${describeWarp(local, raw.width, raw.height)}`}`;
       const result: CanvasImageSource = isIdentity(warp) ? raw : applyWarp(raw, raw.width, raw.height, warp);
       const fixMask = (m: ImageBitmap): CanvasImageSource => (isIdentity(warp) ? m : applyWarp(m, raw.width, raw.height, warp));
       timings.push(["alinhamento", (performance.now() - t1) / 1000]);
@@ -535,7 +547,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
         })(),
       );
       if (directorError && o.director && !o.promptOverride) note = [note, `Diretor de prompt não respondeu (${directorError}); usei o pedido padrão.`].filter(Boolean).join(" ");
-      const r: EditResult = { media, prompt, cutout, note, timings: timings.map(([l, s]) => [l, Math.round(s * 10) / 10]) };
+      const r: EditResult = { media, prompt, cutout, note, alignInfo, timings: timings.map(([l, s]) => [l, Math.round(s * 10) / 10]) };
       results.push(r);
       ctx.onResult?.(r);
     }

@@ -485,6 +485,7 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
                 {pickedResult.timings && (
                   <p className="result-times">
                     {pickedResult.timings.filter(([, s]) => s >= 0.1).map(([l, s]) => `${l} ${s < 10 ? s.toFixed(1) : Math.round(s)}s`).join("  ·  ")}
+                    {pickedResult.alignInfo && <><br />encaixe: {pickedResult.alignInfo}</>}
                   </p>
                 )}
                 {showPrompt && (
