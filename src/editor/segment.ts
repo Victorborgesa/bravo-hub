@@ -57,7 +57,11 @@ export function redShift(a: CanvasImageSource, b: CanvasImageSource, w: number, 
     // Só vermelho de marcação (bem mais forte que verde e azul); pele, madeira
     // e luz quente também puxam para o vermelho, mas bem menos.
     const marking = db[i] > 1.6 * Math.max(db[i + 1], db[i + 2], 1);
-    p.v[j] = marking ? Math.max(0, (rb - ra) / 255) : 0;
+    // Traço branco puro que não existia (contorno da máscara copiado).
+    const lo = Math.min(db[i], db[i + 1], db[i + 2]), hi = Math.max(db[i], db[i + 1], db[i + 2]);
+    const la = (da[i] + da[i + 1] + da[i + 2]) / 3;
+    const whiteLine = lo > 215 && hi - lo < 28 && lo - la > 60;
+    p.v[j] = whiteLine ? 1 : marking ? Math.max(0, (rb - ra) / 255) : 0;
   }
   return p;
 }
@@ -188,9 +192,9 @@ export interface ObjectMaskInput {
   w: number;
   h: number;
   /** Máscaras do resultado, uma por objeto. */
-  found: ImageBitmap[];
+  found: CanvasImageSource[];
   /** O que a pessoa segura (garrafa, taça, bolsa…), para colar junto. */
-  attached?: ImageBitmap[];
+  attached?: CanvasImageSource[];
   /** O que já existia no original (só quando estamos adicionando). */
   existing: ImageBitmap[] | null;
   original: CanvasImageSource;

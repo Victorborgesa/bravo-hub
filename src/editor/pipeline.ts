@@ -8,6 +8,7 @@ import { ProviderError, type JobContext, type ModelDef } from "../providers/type
 import { useCosts } from "../store/costs";
 import { composePrompt, engineCost, integrationOf, nearestAspect, propsFromText, SAM3_COST, tierForSize, wrapDirected, type EditEngine } from "./engines";
 import { directPrompt, splitProps } from "./director";
+import { applyWarp, estimateWarp, isIdentity } from "./align";
 import { alphaPlane, buildObjectMask, findObjects, planeToCanvas } from "./segment";
 
 export interface Rect {
@@ -220,7 +221,7 @@ function differenceAlpha(original: CanvasImageSource, result: CanvasImageSource,
 }
 
 /** Junta o resultado à imagem original só onde a máscara deixa. */
-async function compose(original: ImageBitmap, result: ImageBitmap, rect: Rect, alpha: HTMLCanvasElement) {
+async function compose(original: ImageBitmap, result: CanvasImageSource, rect: Rect, alpha: HTMLCanvasElement) {
   const out = canvas(original.width, original.height);
   const g = out.getContext("2d")!;
   g.drawImage(original, 0, 0);
@@ -445,22 +446,30 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
 
     for (const url of urls) {
       ctx.onStatus?.("Encaixando o resultado…");
-      const result = await timed("download", bitmapFromUrl(url));
+      const raw = await timed("download", bitmapFromUrl(url));
+      // Encaixa o resultado no enquadramento original antes de qualquer coisa.
+      const t1 = performance.now();
+      const before0 = canvas(256, Math.max(1, Math.round((256 * rect.h) / rect.w)));
+      before0.getContext("2d")!.drawImage(original, rect.x, rect.y, rect.w, rect.h, 0, 0, before0.width, before0.height);
+      const warp = estimateWarp(before0, raw, grownSelection(o.mask, rect), rect.w / rect.h);
+      const result: CanvasImageSource = isIdentity(warp) ? raw : applyWarp(raw, raw.width, raw.height, warp);
+      const fixMask = (m: ImageBitmap): CanvasImageSource => (isIdentity(warp) ? m : applyWarp(m, raw.width, raw.height, warp));
+      timings.push(["alinhamento", (performance.now() - t1) / 1000]);
       let alpha = selAlpha;
       let note: string | undefined;
       let cutout: MediaRef | undefined;
 
       if (wantsObject) {
         ctx.onStatus?.("Recortando o contorno…");
-        const found = { masks: await timed("recorte", segmentOnce(url, objectName)) };
+        const found = { masks: (await timed("recorte", segmentOnce(url, objectName))).map(fixMask) };
         const existing = await timed("recorte", existingP);
-        const attached: ImageBitmap[] = [];
+        const attached: CanvasImageSource[] = [];
         if (found.masks.length && objectName !== props.join(", ")) {
-          for (const prop of props) attached.push(...(await timed("recorte", segmentOnce(url, prop))));
+          for (const prop of props) attached.push(...(await timed("recorte", segmentOnce(url, prop))).map(fixMask));
         }
         // Tamanho de trabalho: o do resultado, limitado para não pesar.
-        const k = Math.min(1, 2048 / Math.max(result.width, result.height));
-        const W = Math.round(result.width * k), H = Math.round(result.height * k);
+        const k = Math.min(1, 2048 / Math.max(raw.width, raw.height));
+        const W = Math.round(raw.width * k), H = Math.round(raw.height * k);
         const before = canvas(W, H);
         before.getContext("2d")!.drawImage(original, rect.x, rect.y, rect.w, rect.h, 0, 0, W, H);
         const t0 = performance.now();
@@ -528,7 +537,7 @@ function coverage(c: HTMLCanvasElement) {
 }
 
 /** PNG transparente só com o objeto (e a sombra), pronto para o Photoshop. */
-async function saveCutout(result: ImageBitmap, rect: Rect, alpha: HTMLCanvasElement, o: EditOptions) {
+async function saveCutout(result: CanvasImageSource, rect: Rect, alpha: HTMLCanvasElement, o: EditOptions) {
   const patch = canvas(rect.w, rect.h);
   const g = patch.getContext("2d")!;
   g.imageSmoothingQuality = "high";
