@@ -49,7 +49,17 @@ const FORMAT: Record<string, string> = {
     "TARGET MODEL: Flux. Write a concise instruction describing what the edited area must contain, its light and how it meets the surroundings. 300 to 600 characters.",
 };
 
-const TEXT_MODELS = ["gemini-flash", "gpt-text"];
+/**
+ * Ordem de tentativa. O Flash Lite responde em poucos segundos e escreve bem
+ * esse tipo de texto; os outros ficam de reserva. Cada um tem 30 s: passou
+ * disso, segue para o próximo em vez de travar a geração.
+ */
+const ATTEMPTS: { id: string; apiModel?: string; label?: string }[] = [
+  { id: "gemini-flash", apiModel: "gemini-flash-lite-latest", label: "Gemini Flash Lite" },
+  { id: "gemini-flash" },
+  { id: "gpt-text" },
+];
+const ATTEMPT_MS = 30_000;
 
 export interface DirectorInput {
   engine: EditEngine;
@@ -77,7 +87,9 @@ export function splitProps(text: string): { text: string; props: string[] } {
   return { text: clean, props: props.slice(0, 3) };
 }
 
-export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<{ text: string; props: string[]; model: ModelDef } | null> {
+export type Directed = { text: string; props: string[]; model: ModelDef } | { error: string };
+
+export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<Directed> {
   const task = ACTIONS[i.category]?.find((a) => a[0] === i.action);
   const ask = [
     FORMAT[i.engine.family] ?? FORMAT["Nano Banana (Google)"],
@@ -91,21 +103,35 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<{
     .join("\n\n");
 
   const scene: MediaRef = { id: "director-scene", kind: "image", url: URL.createObjectURL(i.scene), mime: "image/jpeg", createdAt: Date.now() };
+  let error = "nenhum modelo de texto disponível";
   try {
-    for (const id of TEXT_MODELS) {
-      const model = modelById(id);
-      if (!model) continue;
+    for (const a of ATTEMPTS) {
+      const base = modelById(a.id);
+      if (!base) continue;
+      const model: ModelDef = { ...base, ...(a.apiModel ? { apiModel: a.apiModel, label: a.label ?? base.label } : {}) };
+      // Cancela esta tentativa sozinha depois do prazo, ou junto com o usuário.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ATTEMPT_MS);
+      const relay = () => ctrl.abort();
+      ctx.signal?.addEventListener("abort", relay, { once: true });
       try {
-        const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene], fast: true }, ctx)).trim();
-        if (text.length < 40) continue;
+        const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene], fast: true }, { ...ctx, signal: ctrl.signal })).trim();
+        if (text.length < 40) {
+          error = `${model.label} respondeu vazio`;
+          continue;
+        }
         useCosts.getState().record(model, 0.003, true);
         const split = splitProps(text.replace(/^["'`]+|["'`]+$/g, ""));
         return { ...split, model };
       } catch (e) {
         if (ctx.signal?.aborted) throw e;
+        error = ctrl.signal.aborted ? `${model.label} passou de ${ATTEMPT_MS / 1000}s` : `${model.label}: ${e instanceof Error ? e.message : e}`;
+      } finally {
+        clearTimeout(timer);
+        ctx.signal?.removeEventListener("abort", relay);
       }
     }
-    return null;
+    return { error };
   } finally {
     URL.revokeObjectURL(scene.url);
   }

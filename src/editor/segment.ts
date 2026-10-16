@@ -230,9 +230,10 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
   }
   if (!fresh.length) return null;
 
-  // Prefere o que caiu dentro da área marcada. Se a IA pôs tudo um pouco fora,
-  // ainda assim cola inteiro (melhor que meio corpo) e avisa.
-  let chosen = fresh.filter((c) => c.inside >= 0.35);
+  // Fica com tudo que é novo e encosta na área marcada, inteiro: se a IA
+  // sentou a segunda pessoa um pouco além da borda, ela vem completa em vez
+  // de cortada ao meio. O que nasceu longe da área fica de fora.
+  let chosen = fresh.filter((c) => c.inside >= 0.1);
   let note: string | undefined;
   if (!chosen.length) {
     chosen = fresh;

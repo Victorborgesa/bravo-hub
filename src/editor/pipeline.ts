@@ -301,6 +301,8 @@ async function directorView(o: EditOptions, p: Prepared) {
 interface BuiltPrompt {
   prompt: string;
   directed: boolean;
+  /** Por que o diretor não escreveu, quando ele estava ligado. */
+  directorError?: string;
   /** Objetos que a pessoa adicionada segura: entram no recorte junto com ela. */
   props: string[];
 }
@@ -311,17 +313,19 @@ async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promis
     return { prompt: text, directed: false, props: props.length ? props : propsFromText(o.instruction) };
   }
   const refs = o.engine.references ? o.references.length : 0;
+  let directorError: string | undefined;
   if (o.director) {
     ctx.onStatus?.("Diretor lendo a cena…");
     const directed = await directPrompt(
       { engine: o.engine, category: o.category, action: o.action, instruction: o.instruction, references: refs, scene: await directorView(o, p) },
       ctx,
     );
-    if (directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint"), directed: true, props: directed.props };
+    if ("text" in directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint"), directed: true, props: directed.props };
+    directorError = directed.error;
   }
   const prompt = composePrompt(o.category, o.action, o.instruction, refs);
   if (!prompt) throw new Error("Escolha um pronto ou escreva o que você quer.");
-  return { prompt, directed: false, props: propsFromText(o.instruction) };
+  return { prompt, directed: false, directorError, props: propsFromText(o.instruction) };
 }
 
 /** Mostra o pedido que vai para a IA, para revisar antes de gastar a geração. */
@@ -352,7 +356,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   // O diretor (Google) e o envio da cena (Replicate) não dependem um do
   // outro: correm juntos.
   ctx.onStatus?.(o.director && !o.promptOverride ? "Diretor lendo a cena e enviando…" : "Enviando a cena…");
-  const [{ prompt, props }, { sceneUrl, refUrls, maskUrl }] = await Promise.all([
+  const [{ prompt, props, directorError }, { sceneUrl, refUrls, maskUrl }] = await Promise.all([
     timed("diretor", buildPrompt(o, prep, { ...ctx, onStatus: undefined })),
     timed(
       "envio",
@@ -400,7 +404,12 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   const results: EditResult[] = [];
   const feather = Math.max(2, Math.round(Math.max(rect.w, rect.h) * 0.006));
   const selAlpha = selectionAlpha(o.mask, rect, feather);
-  const wantsObject = o.placement === "object" && o.objectName.trim().length > 0;
+  // Campo vazio no recorte exato: em "Pessoas" o alvo é sempre pessoa.
+  const objectName = o.objectName.trim() || (o.category === "Pessoas" ? "pessoa" : "");
+  const wantsObject = o.placement === "object" && objectName.length > 0;
+  // Sem nada para recortar, compara com o original em vez de usar a seleção
+  // inteira (que cortaria quem passou da borda).
+  const placement = o.placement === "object" && !objectName ? "changed" : o.placement;
   const adding = integrationOf(o.category, o.action) === "inserir";
   // O que já existia na cena é procurado uma vez só (depois da primeira
   // geração, uma chamada por vez, para não esbarrar no limite do Replicate).
@@ -429,10 +438,10 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
 
       if (wantsObject) {
         ctx.onStatus?.("Recortando o contorno…");
-        const found = { masks: await segmentOnce(url, o.objectName) };
-        if (existing === undefined) existing = adding && found.masks.length ? await segmentOnce(sceneUrl, o.objectName) : null;
+        const found = { masks: await segmentOnce(url, objectName) };
+        if (existing === undefined) existing = adding && found.masks.length ? await segmentOnce(sceneUrl, objectName) : null;
         const attached: ImageBitmap[] = [];
-        if (found.masks.length && o.objectName.trim() !== props.join(", ")) {
+        if (found.masks.length && objectName !== props.join(", ")) {
           for (const prop of props) attached.push(...(await segmentOnce(url, prop)));
         }
         // Tamanho de trabalho: o do resultado, limitado para não pesar.
@@ -463,9 +472,9 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
           // Não achou nada novo com esse nome: cai para o que mudou.
           const diff = differenceAlpha(original, result, rect, feather);
           alpha = intersect(diff, grownSelection(o.mask, rect));
-          note = `Não encontrei "${o.objectName}" novo na área; encaixei pelo que mudou.`;
+          note = `Não encontrei "${objectName}" novo na área; encaixei pelo que mudou.`;
         }
-      } else if (o.placement === "changed") {
+      } else if (placement === "changed") {
         const diff = differenceAlpha(original, result, rect, feather);
         alpha = o.keepInside ? intersect(diff, grownSelection(o.mask, rect)) : diff;
       }
@@ -482,6 +491,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
           return saveBytes(new Uint8Array(await blob.arrayBuffer()), "image/png", { model: o.engine.name, prompt: o.instruction || o.action });
         })(),
       );
+      if (directorError && o.director && !o.promptOverride) note = [note, `Diretor de prompt não respondeu (${directorError}); usei o pedido padrão.`].filter(Boolean).join(" ");
       const r: EditResult = { media, prompt, cutout, note, timings: timings.map(([l, s]) => [l, Math.round(s * 10) / 10]) };
       results.push(r);
       ctx.onResult?.(r);
