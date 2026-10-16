@@ -36,10 +36,11 @@
   --aurora-4: rgba(170, 140, 120, 0.16);  /* argila apagada */
 
   /* Vidro: alfa suficiente para existir sobre a aurora, borda clara no topo. */
-  --glass: rgba(40, 43, 35, 0.62);
-  --glass-strong: rgba(36, 38, 31, 0.86);
-  --glass-blur: blur(28px) saturate(170%);
-  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  --glass: rgba(40, 43, 35, 0.58);
+  --glass-strong: rgba(36, 38, 31, 0.84);
+  --glass-blur: blur(32px) saturate(180%);
+  /* Borda especular: luz no topo, contorno quase invisível, sombra embaixo. */
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.13), inset 0 0 0 1px rgba(255, 255, 255, 0.035), inset 0 -1px 0 rgba(0, 0, 0, 0.2);
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);

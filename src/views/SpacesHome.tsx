@@ -7,6 +7,7 @@ import { useSpaces } from "../store/spaces";
 import { relativeDate } from "../lib/format";
 import { MediaView } from "../canvas/nodes/controls";
 import { PageHead } from "./PageHead";
+import { item } from "../lib/motion";
 
 export function SpacesHome() {
   const { spaces, open, remove, duplicate } = useSpaces();
@@ -32,11 +33,9 @@ export function SpacesHome() {
               <motion.li
                 key={s.id}
                 className="space-row"
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 * i, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                {...item(i)}
               >
-                <button className="space-open" onClick={() => open(s.id)}>
+                <button className="space-open" data-glow onClick={() => open(s.id)}>
                   <span className="space-title">{s.name}</span>
                   <span className="space-meta">
                     {s.nodes.length} nodes · editado {relativeDate(s.updatedAt)}

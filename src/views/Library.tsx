@@ -4,6 +4,7 @@ import { useSpaces } from "../store/spaces";
 import { MediaView, useLightbox } from "../canvas/nodes/controls";
 import { PageHead } from "./PageHead";
 import { formatDate } from "../lib/format";
+import { item } from "../lib/motion";
 
 type Filter = "all" | "image" | "video";
 
@@ -40,9 +41,8 @@ export function Library() {
               key={m.id}
               className="masonry-item"
               onClick={() => open(m)}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.03, 0.6) }}
+              data-glow
+              {...item(i)}
             >
               <MediaView media={m} />
               <span className="masonry-meta">

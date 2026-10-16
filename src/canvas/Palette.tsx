@@ -3,6 +3,7 @@ import { Search, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NodeIcon } from "./nodes/icons";
 import { NODE_SPECS, type NodeCategory, type NodeKind } from "./ports";
+import { quick } from "../lib/motion";
 
 export type PaletteChoice = { kind: NodeKind; pickFiles?: boolean };
 
@@ -85,9 +86,7 @@ export function Palette({ x, y, onPick, onClose }: { x: number; y: number; onPic
       ref={ref}
       className="palette"
       style={{ left, top }}
-      initial={{ opacity: 0, scale: 0.96, y: -4 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      {...quick}
       onContextMenu={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         if (e.key === "ArrowDown") setCursor((c) => Math.min(c + 1, items.length - 1));

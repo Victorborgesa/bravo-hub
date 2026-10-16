@@ -13,6 +13,7 @@ import { notifyDesktop } from "../lib/system";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { MediaRef } from "../lib/media";
+import { immersive } from "../lib/motion";
 
 type Tool = "brush" | "erase" | "lasso" | "rect" | "hand";
 
@@ -379,7 +380,7 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   const pickedResult = results.find((r) => r.media.id === picked);
 
   return (
-    <motion.div className="editor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+    <motion.div className="editor" {...immersive}>
       <header className="editor-bar">
         <span className="editor-title">Editor</span>
         <div className="editor-tools">

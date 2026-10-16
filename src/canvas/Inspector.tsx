@@ -8,6 +8,7 @@ import { NODE_SPECS, type NodeOutputs } from "./ports";
 import { AUTO_ID, modelById, resolveModel } from "../providers/catalog";
 import { cancelNode, runNode } from "./engine";
 import { importFiles } from "./nodes";
+import { drawer } from "../lib/motion";
 
 const MAX_REFS = 8;
 
@@ -49,10 +50,7 @@ export function Inspector() {
         <motion.aside
           key="inspector"
           className="inspector"
-          initial={{ x: 40, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: 40, opacity: 0 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          {...drawer}
         >
           <header className="inspector-head">
             <NodeIcon kind={kind!} size={15} />

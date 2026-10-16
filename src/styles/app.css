@@ -211,7 +211,7 @@ select.field option, select.field optgroup { background: var(--surface); }
 .react-flow__nodesselection-rect { border-radius: 10px; }
 .react-flow__minimap { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 
-.typed-edge { stroke-width: 1.6; fill: none; transition: stroke 0.2s, stroke-width 0.2s; animation: edge-in 0.6s var(--ease); }
+.typed-edge { stroke-width: 1.6; fill: none; transition: stroke 0.2s, stroke-width 0.2s; }
 .typed-edge.edge-text { stroke: rgba(210, 200, 160, 0.55); }
 .typed-edge.edge-image { stroke: rgba(159, 183, 155, 0.6); }
 .typed-edge.edge-video { stroke: rgba(198, 157, 132, 0.6); }

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Download, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useUpdates } from "../store/updates";
+import { rise } from "../lib/motion";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 
@@ -29,7 +30,7 @@ export function UpdateBanner() {
   return (
     <AnimatePresence>
       {show && (
-        <motion.div className="update-banner" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}>
+        <motion.div className="update-banner" {...rise}>
           <Download size={16} />
           <span>
             {status === "installing"

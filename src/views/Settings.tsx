@@ -11,6 +11,7 @@ import { useUpdates } from "../store/updates";
 import { relativeDate } from "../lib/format";
 import { getVersion } from "@tauri-apps/api/app";
 import { deleteMedia, formatBytes, scanMedia, type MediaUsage } from "../lib/storage";
+import { item } from "../lib/motion";
 
 function SecretField({ secretKey, label, onChange }: { secretKey: string; label: string; onChange: () => void }) {
   const [saved, setSaved] = useState(false);
@@ -67,7 +68,7 @@ function ProviderCard({ id, index }: { id: ProviderId; index: number }) {
     Promise.all(p.secrets.map((s) => secretGet(s.key))).then((vals) => setReady(vals.every(Boolean)));
   }, [p, version]);
   return (
-    <motion.section className="provider" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 * index }}>
+    <motion.section className="provider" {...item(index)}>
       <header className="provider-head">
         <h2>{p.name}</h2>
         <span className={`badge ${ready ? "ok" : ""}`}>{ready ? <><Check size={12} /> Conectado</> : "Sem chave"}</span>

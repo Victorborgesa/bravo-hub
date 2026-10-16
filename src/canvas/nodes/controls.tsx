@@ -8,6 +8,7 @@ import { useModelOverrides } from "../../store/models";
 import { exportToDownloads } from "../../lib/platform";
 import { mediaFileName, type MediaRef } from "../../lib/media";
 import { notify } from "../../store/toasts";
+import { float } from "../../lib/motion";
 
 // ---------- Estado compartilhado ----------
 
@@ -42,12 +43,7 @@ export function MediaView({ media, className = "", controls = false }: { media: 
 
 // ---------- Popover ----------
 
-const pop = {
-  initial: { opacity: 0, y: 6, scale: 0.97 },
-  animate: { opacity: 1, y: 0, scale: 1 },
-  exit: { opacity: 0, y: 4, scale: 0.98 },
-  transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const },
-};
+const pop = float;
 
 /** Botão em formato de pílula que abre um painel flutuante dentro do node. */
 export function Popover({ trigger, children, align = "left", width = 260, className = "" }: { trigger: (open: boolean) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right" | "center"; width?: number; className?: string }) {

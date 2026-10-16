@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useState } from "react";
 import { Sidebar, type View } from "./views/Sidebar";
 import { SpacesHome } from "./views/SpacesHome";
@@ -9,6 +9,7 @@ import { Lightbox, SpaceCanvas } from "./canvas/SpaceCanvas";
 import { useSpaces } from "./store/spaces";
 import { useToasts } from "./store/toasts";
 import { UpdateBanner } from "./views/UpdateBanner";
+import { EASE, enterSpace, page, SPRING } from "./lib/motion";
 
 const PAGES: Record<View, () => JSX.Element> = {
   spaces: SpacesHome,
@@ -32,10 +33,10 @@ function Toasts() {
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={{ left: 0.08, right: 0.9 }}
             onDragEnd={(_, info) => (info.offset.x > 80 || info.velocity.x > 400) && dismiss(t.id)}
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 60, transition: { duration: 0.2 } }}
-            transition={{ type: "spring", stiffness: 500, damping: 40 }}
+            initial={{ opacity: 0, y: 16, scale: 0.97, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
+            exit={{ opacity: 0, x: 60, filter: "blur(4px)", transition: { duration: 0.18, ease: EASE } }}
+            transition={SPRING}
           >
             {t.message}
           </motion.button>
@@ -53,13 +54,14 @@ export function App() {
   const key = activeId ? `canvas-${activeId}` : view;
 
   return (
-    <>
+    // Quem pede menos movimento no Windows ganha só fades, sem deslocamento.
+    <MotionConfig reducedMotion="user">
     <div className="aurora" aria-hidden><span /></div>
     <div className="grain" aria-hidden />
     <div className="app">
       <AnimatePresence mode="wait">
         {!activeId && (
-          <motion.div key="sidebar" initial={{ x: -30, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -30, opacity: 0 }} transition={{ duration: 0.35 }}>
+          <motion.div key="sidebar" initial={{ x: -24, opacity: 0, filter: "blur(8px)" }} animate={{ x: 0, opacity: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }} exit={{ x: -20, opacity: 0, filter: "blur(6px)" }} transition={{ duration: 0.32, ease: EASE }}>
             <Sidebar
               view={view}
               onChange={(v) => {
@@ -75,10 +77,7 @@ export function App() {
           <motion.div
             key={key}
             className="view"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            {...(activeId ? enterSpace : page)}
           >
             {activeId ? <SpaceCanvas /> : <Page />}
           </motion.div>
@@ -88,6 +87,6 @@ export function App() {
       <Toasts />
       <UpdateBanner />
     </div>
-    </>
+    </MotionConfig>
   );
 }

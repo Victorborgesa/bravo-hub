@@ -3,6 +3,7 @@ import { Check, Loader2, Minus, X } from "lucide-react";
 import { useRuns, type StepState } from "../store/runs";
 import { useSpaces } from "../store/spaces";
 import { Timer } from "./Timer";
+import { rise } from "../lib/motion";
 
 const ICON: Record<StepState, React.ReactNode> = {
   waiting: null,
@@ -24,7 +25,7 @@ export function RunPanel() {
   return (
     <AnimatePresence>
       {show && run && (
-        <motion.section className="run-panel" initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 12, opacity: 0 }} transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}>
+        <motion.section className="run-panel" {...rise}>
           <div className="run-bar"><div style={{ transform: `scaleX(${finished / total})` }} /></div>
           <header className="run-head">
             <span className="run-title">

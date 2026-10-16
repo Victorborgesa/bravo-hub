@@ -8,7 +8,7 @@ function TypedEdge({ id, target, sourceX, sourceY, targetX, targetY, sourcePosit
   const type = handleType(sourceHandleId) ?? "text";
   return (
     <>
-      <BaseEdge id={id} path={path} className={`typed-edge edge-${type} ${selected ? "is-selected" : ""}`} />
+      <BaseEdge id={id} path={path} pathLength={1} className={`typed-edge edge-${type} ${selected ? "is-selected" : ""}`} />
       {running && <path d={path} className={`edge-flow edge-${type}`} fill="none" />}
     </>
   );

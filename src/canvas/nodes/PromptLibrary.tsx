@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { BookMarked, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { usePrompts, type SavedPrompt } from "../../store/prompts";
+import { float } from "../../lib/motion";
 
 /** Botão que abre os prompts salvos da Bravo: inserir, salvar o atual e apagar. */
 export function PromptLibrary({ kind, current, onInsert }: { kind: SavedPrompt["kind"]; current: string; onInsert: (text: string) => void }) {
@@ -36,7 +37,7 @@ export function PromptLibrary({ kind, current, onInsert }: { kind: SavedPrompt["
       </button>
       <AnimatePresence>
         {open && (
-          <motion.div className="popover lib-pop" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} transition={{ duration: 0.18 }}>
+          <motion.div className="popover lib-pop" {...float}>
             <label className="menu-search">
               <Search size={14} />
               <input autoFocus placeholder="Buscar prompt" value={q} onChange={(e) => setQ(e.target.value)} />

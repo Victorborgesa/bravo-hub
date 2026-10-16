@@ -8,6 +8,7 @@ import { useSpaces } from "../../store/spaces";
 import { NodeIcon } from "./icons";
 import { Timer } from "../Timer";
 import { downloadMedia, useInspector, useLightbox } from "./controls";
+import { EASE, float, SPRING_SNAPPY } from "../../lib/motion";
 
 const PORT_ICON: Record<PortType, typeof Type> = { text: Type, image: ImageIcon, video: Clapperboard };
 const LABEL_H = 28;
@@ -52,7 +53,7 @@ function Toolbar({ id, kind, data }: { id: string; kind: NodeKind; data: BaseNod
   const media = data.outputs?.images?.[0] ?? data.outputs?.videos?.[0] ?? data.gallery?.[0];
 
   return (
-    <motion.div className="node-toolbar" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+    <motion.div className="node-toolbar" initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={SPRING_SNAPPY}>
       {spec.runnable && (
         <>
           {running ? (
@@ -64,7 +65,7 @@ function Toolbar({ id, kind, data }: { id: string; kind: NodeKind; data: BaseNod
             <button className={`tb-btn narrow ${menu ? "is-open" : ""}`} title="Mais opções de execução" onClick={() => setMenu((m) => !m)}><ChevronDown size={13} /></button>
             <AnimatePresence>
               {menu && (
-                <motion.div className="tb-menu" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.15 }} onMouseLeave={() => setMenu(false)}>
+                <motion.div className="tb-menu" {...float} onMouseLeave={() => setMenu(false)}>
                   <button onClick={() => { setMenu(false); runNode(id); }}>Executar só este node</button>
                   <button onClick={() => { setMenu(false); runUpTo(spaceId, id); }}>Executar até aqui</button>
                   <button onClick={() => { setMenu(false); runFrom(spaceId, id); }}>Executar daqui em diante</button>
@@ -94,9 +95,9 @@ export function NodeShell({ id, kind, data, selected, children, width = 320 }: P
     <motion.div
       className={`node node-${kind} ${selected ? "is-selected" : ""} ${running ? "is-running" : ""} ${data.status === "error" ? "is-error" : ""}`}
       style={{ width }}
-      initial={{ opacity: 0, y: 10, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      initial={{ opacity: 0, y: 10, scale: 0.95, filter: "blur(8px)" }}
+      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
+      transition={{ duration: 0.5, ease: EASE }}
     >
       <NodeToolbar isVisible={selected && single} position={Position.Top} offset={10}>
         <Toolbar id={id} kind={kind} data={data} />
@@ -106,8 +107,8 @@ export function NodeShell({ id, kind, data, selected, children, width = 320 }: P
         <NodeIcon kind={kind} size={13} />
         <span>{spec.title} #{data.seq ?? 1}</span>
         <AnimatePresence>
-          {data.status === "done" && <motion.span className="node-dot ok" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} />}
-          {data.status === "error" && <motion.span className="node-dot err" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} />}
+          {data.status === "done" && <motion.span className="node-dot ok" initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.4, opacity: 0 }} transition={SPRING_SNAPPY} />}
+          {data.status === "error" && <motion.span className="node-dot err" initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.4, opacity: 0 }} transition={SPRING_SNAPPY} />}
         </AnimatePresence>
       </div>
 

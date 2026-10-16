@@ -28,6 +28,7 @@ import { useActiveSpace, useSpaces } from "../store/spaces";
 import { useCosts } from "../store/costs";
 import { formatUsd } from "../lib/format";
 import { notify } from "../store/toasts";
+import { immersive, rise, veil } from "../lib/motion";
 
 type Tool = "select" | "hand";
 
@@ -47,8 +48,8 @@ export function Lightbox() {
   return (
     <AnimatePresence>
       {media && (
-        <motion.div className="lightbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => open(null)}>
-          <motion.div className="lightbox-inner" initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.97 }} transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }} onClick={(e) => e.stopPropagation()}>
+        <motion.div className="lightbox" {...veil} onClick={() => open(null)}>
+          <motion.div className="lightbox-inner" {...immersive} onClick={(e) => e.stopPropagation()}>
             <MediaView media={media} controls />
             <div className="lightbox-meta">
               <div>
@@ -109,7 +110,7 @@ function SelectionBar() {
   return (
     <AnimatePresence>
       {selected.length > 1 && (
-        <motion.div className="selection-bar" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}>
+        <motion.div className="selection-bar" {...rise}>
           <span className="sel-count">{selected.length} selecionados</span>
           <button className="tb-btn wide" onClick={() => activeId && runSelection(activeId, selected)}><Play size={13} /> Executar</button>
           <button className="tb-btn wide" onClick={() => duplicateNodes(selected)}><Copy size={13} /> Duplicar</button>
@@ -272,7 +273,7 @@ function Canvas() {
 
       <AnimatePresence>
         {dragOver && (
-          <motion.div className="drop-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="drop-overlay" {...veil}>
             <span>Solte as imagens para adicionar ao space</span>
           </motion.div>
         )}
