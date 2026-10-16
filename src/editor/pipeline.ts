@@ -284,20 +284,13 @@ async function prepare(o: EditOptions): Promise<Prepared> {
 /** O gerador usa um guia de posição? Só quem aceita várias imagens. */
 const usesGuide = (o: EditOptions) => o.engine.kind !== "inpaint" && o.engine.imagesField !== "input_image";
 
-/** Guia de posição para o gerador: a cena com a área tingida de vermelho. */
+/**
+ * Guia de posição para o gerador: máscara em preto e branco do tamanho da
+ * cena (branco = área da edição). Não é uma foto, então a IA não tem como
+ * copiar nada dela para o resultado, como acontecia com a cena tingida.
+ */
 async function guideBlob(o: EditOptions, p: Prepared) {
-  const c = canvas(p.out.w, p.out.h);
-  const g = c.getContext("2d")!;
-  g.imageSmoothingQuality = "high";
-  g.drawImage(p.original, p.rect.x, p.rect.y, p.rect.w, p.rect.h, 0, 0, p.out.w, p.out.h);
-  const tint = canvas(p.out.w, p.out.h);
-  const tg = tint.getContext("2d")!;
-  tg.drawImage(o.mask, p.rect.x, p.rect.y, p.rect.w, p.rect.h, 0, 0, p.out.w, p.out.h);
-  tg.globalCompositeOperation = "source-in";
-  tg.fillStyle = "rgba(255, 0, 0, 0.5)";
-  tg.fillRect(0, 0, p.out.w, p.out.h);
-  g.drawImage(tint, 0, 0);
-  return toBlob(c, "image/jpeg", 0.9);
+  return maskBlob(o.mask, p.rect, p.out);
 }
 
 /** A cena como o diretor vê: a área da edição em laranja, o resto um pouco apagado. */
@@ -385,7 +378,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
           ? await Promise.all(o.references.map(async (r, i) => replicateUpload(await mediaBlob(r), `referencia-${i + 1}.png`, ctx)))
           : [];
         const maskUrl = o.engine.kind === "inpaint" ? await replicateUpload(await maskBlob(o.mask, rect, out), "mascara.png", ctx) : undefined;
-        const guideUrl = usesGuide(o) ? await replicateUpload(await guideBlob(o, prep), "guia.jpg", ctx) : undefined;
+        const guideUrl = usesGuide(o) ? await replicateUpload(await guideBlob(o, prep), "guia.png", ctx) : undefined;
         return { sceneUrl, refUrls, maskUrl, guideUrl };
       })(),
     ),

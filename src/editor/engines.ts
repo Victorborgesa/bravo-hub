@@ -140,14 +140,14 @@ function rolesText(n: number, guide = false) {
   else if (n > 1) parts.push(`Images 1 to ${n} are REFERENCES for appearance only, each one a different subject.`);
   if (guide)
     parts.push(
-      `Image ${n + 1} is a PLACEMENT GUIDE: the same scene with the edit area tinted red. Use it only to know where the edit goes; never copy the red tint.`,
+      `Image ${n + 1} is a PLACEMENT MASK for the scene, not a picture: white marks the edit area, black marks everything that must stay unchanged.`,
     );
   parts.push(`Image ${scene} is the SCENE: an architectural photograph to edit.`);
   if (guide)
     parts.push(
-      `Make the edit only inside the red area of image ${n + 1}, and size and arrange everything you add so that all of it -- whole bodies, feet and hands included -- fits inside that area.`,
+      `Make the edit only where image ${n + 1} is white, and size and arrange everything you add so that all of it -- whole bodies, feet and hands included -- fits inside that white area.`,
     );
-  parts.push("Return only the edited scene, clean, with no red tint.");
+  parts.push("Return only the edited scene, with no mask, outline or marking visible.");
   return parts.join(" ");
 }
 

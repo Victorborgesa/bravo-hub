@@ -101,7 +101,7 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<D
       ? `The image model will also receive ${i.references} reference image(s) for appearance only (refer to them as "the reference image${i.references > 1 ? "s" : ""}"); keep identity and clothing from them, light and scale from the scene.`
       : "",
     i.guide
-      ? "The image model also receives a placement guide (the scene with the edit area tinted red). Say that everything added stays inside the red-marked area of the guide, and choose a number, pose and size of subjects that fits that area completely, feet and hands included."
+      ? "The image model also receives a black-and-white placement mask (white = the edit area, the same area you see tinted orange). Say that everything added stays inside the white area of the mask, and choose a number, pose and size of subjects that fits that area completely, feet and hands included."
       : "",
   ]
     .filter(Boolean)

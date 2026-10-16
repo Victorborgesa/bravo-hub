@@ -43,6 +43,25 @@ export function maskPlane(src: CanvasImageSource, w: number, h: number): Plane {
   return p;
 }
 
+/**
+ * Quanto o resultado puxou para o vermelho em relação ao original (0 a 1).
+ * Serve para barrar marcações que a IA tenha copiado para a cena.
+ */
+export function redShift(a: CanvasImageSource, b: CanvasImageSource, w: number, h: number): Plane {
+  const da = draw(a, w, h);
+  const db = draw(b, w, h);
+  const p = plane(w, h);
+  for (let i = 0, j = 0; j < p.v.length; i += 4, j++) {
+    const ra = da[i] - (da[i + 1] + da[i + 2]) / 2;
+    const rb = db[i] - (db[i + 1] + db[i + 2]) / 2;
+    // Só vermelho de marcação (bem mais forte que verde e azul); pele, madeira
+    // e luz quente também puxam para o vermelho, mas bem menos.
+    const marking = db[i] > 1.6 * Math.max(db[i + 1], db[i + 2], 1);
+    p.v[j] = marking ? Math.max(0, (rb - ra) / 255) : 0;
+  }
+  return p;
+}
+
 /** Só o canal alfa (a seleção pintada no editor). */
 export function alphaPlane(src: CanvasImageSource, w: number, h: number): Plane {
   const d = draw(src, w, h);
@@ -270,6 +289,8 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
 
   // Zona de contato: perna dentro da água, reflexo, respingo, almofada que
   // afundou. O segmentador não chama isso de "pessoa", mas faz parte dela.
+  // Mudança que puxou forte para o vermelho é marcação copiada, não cena.
+  const red = redShift(o.original, o.result, w, h);
   {
     const contact = plane(w, h);
     for (const [x0, y0, x1, y1] of boxes) {
@@ -283,7 +304,7 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
         for (let x = cx0; x <= cx1; x++) {
           const i = y * w + x;
           const d = diff.v[i];
-          if (d < 0.12) continue;
+          if (d < 0.12 || red.v[i] > 0.12) continue;
           contact.v[i] = Math.max(contact.v[i], Math.min(1, (d - 0.12) / 0.35) * fall);
         }
       }
@@ -306,7 +327,7 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
         for (let x = sx0; x <= sx1; x++) {
           const i = y * w + x;
           const dark = lo.v[i] - lr.v[i];
-          if (dark <= 0.025) continue;
+          if (dark <= 0.025 || red.v[i] > 0.12) continue;
           const v = Math.min(1, (dark - 0.025) / 0.1);
           shade.v[i] = Math.max(shade.v[i], v);
         }
