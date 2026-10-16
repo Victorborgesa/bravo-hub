@@ -1,7 +1,8 @@
 import { motion } from "motion/react";
 import { Check, ExternalLink, KeyRound } from "lucide-react";
 import { useEffect, useState } from "react";
-import { PROVIDERS } from "../providers/catalog";
+import { MODELS, PROVIDERS } from "../providers/catalog";
+import { useModelOverrides } from "../store/models";
 import type { ProviderId } from "../providers/types";
 import { isTauri, secretDelete, secretGet, secretSet } from "../lib/platform";
 import { notify } from "../store/toasts";
@@ -74,6 +75,39 @@ function ProviderCard({ id, index }: { id: ProviderId; index: number }) {
   );
 }
 
+const CAP_LABEL = { image: "Imagem", video: "Vídeo", upscale: "Upscale", text: "Texto" } as const;
+
+/** Permite corrigir o ID de API de um modelo quando o fabricante renomeia ou aposenta uma versão. */
+function ModelIds() {
+  const { apiIds, setApiId, reset } = useModelOverrides();
+  return (
+    <section className="models-table">
+      <h2 className="section-title">Modelos</h2>
+      <p className="muted small-lead">
+        Os fabricantes renomeiam e aposentam modelos com frequência. Se algum der erro de "modelo não encontrado", troque o ID aqui pelo nome que aparece na documentação ou no painel do fabricante.
+      </p>
+      <table className="table">
+        <tbody>
+          {MODELS.map((m) => (
+            <tr key={m.id}>
+              <td>{m.label}</td>
+              <td className="muted">{PROVIDERS[m.provider].name.split(" ")[0]} · {CAP_LABEL[m.capability]}</td>
+              <td className="id-cell">
+                <input
+                  className={`field mono ${apiIds[m.id] ? "is-custom" : ""}`}
+                  value={apiIds[m.id] ?? m.apiModel}
+                  onChange={(e) => (e.target.value.trim() && e.target.value !== m.apiModel ? setApiId(m.id, e.target.value.trim()) : reset(m.id))}
+                />
+              </td>
+              <td className="num">{apiIds[m.id] && <button className="link" onClick={() => reset(m.id)}>Restaurar</button>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 export function Settings() {
   return (
     <div className="page">
@@ -89,6 +123,7 @@ export function Settings() {
           <ProviderCard key={id} id={id} index={i} />
         ))}
       </div>
+      <ModelIds />
     </div>
   );
 }

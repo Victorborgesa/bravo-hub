@@ -1,6 +1,6 @@
 import type { MediaRef } from "../lib/media";
 import { googleImage, googleText, googleVideo } from "./google";
-import { openaiImage, openaiText, openaiVideo } from "./openai";
+import { openaiImage, openaiText } from "./openai";
 import { seedanceVideo, seedreamImage } from "./bytedance";
 import { klingImage, klingVideo } from "./kling";
 import { minimaxImage, minimaxText, minimaxVideo } from "./minimax";
@@ -21,7 +21,6 @@ export function generateImages(job: ImageJob, ctx: JobContext): Promise<MediaRef
 export function generateVideo(job: VideoJob, ctx: JobContext): Promise<MediaRef[]> {
   switch (job.model.provider) {
     case "google": return googleVideo(job, ctx);
-    case "openai": return openaiVideo(job, ctx);
     case "bytedance": return seedanceVideo(job, ctx);
     case "kling": return klingVideo(job, ctx);
     case "minimax": return minimaxVideo(job, ctx);

@@ -4,9 +4,11 @@ Hub desktop de inteligências artificiais da Bravo Visuals. Reúne geração de 
 
 ## O que já tem
 
-O canvas tem sete nodes: Texto, Lista (gera um resultado por item), Assistente (cria e refina prompts, descreve imagens, sugere variações), Upload, Gerador de imagem, Gerador de vídeo e Upscale. As portas são tipadas (texto, imagem e vídeo), então só dá pra ligar o que combina. Cada node roda sozinho, ou dá pra rodar o fluxo inteiro em ordem.
+O canvas tem sete nodes: Texto, Lista (gera um resultado por item), Assistente (cria e refina prompts, descreve imagens, sugere variações), Upload, Gerador de imagem, Gerador de vídeo e Upscale. As portas são tipadas (texto, imagem e vídeo), então só dá pra ligar o que combina. Cada node roda sozinho, até ele, a partir dele ou o fluxo inteiro.
 
-Fabricantes conectados: Google (Nano Banana, Imagen, Veo, Gemini), OpenAI (GPT Image, Sora, GPT), ByteDance pela BytePlus ModelArk (Seedream, Seedance), Kling, MiniMax (Hailuo, Image-01) e Replicate (Clarity Upscaler). A lista de modelos fica em `src/providers/catalog.ts` e é fácil de editar quando sair versão nova.
+No canvas: botão direito (ou a tecla N) abre o menu de inserção com busca; arrastar com o botão esquerdo seleciona vários nodes; o botão do meio, o direito ou a barra de espaço movem a tela; imagens arrastadas do Windows Explorer ou coladas com Ctrl+V viram um node de upload. Atalhos: Ctrl+Z/Ctrl+Shift+Z desfazem e refazem, Ctrl+D duplica, Ctrl+A seleciona tudo, Delete exclui, V e H trocam entre seleção e mão, Shift+1 enquadra tudo. Clicar duas vezes num gerador abre o painel lateral de configurações.
+
+Fabricantes conectados: Google (Nano Banana Pro, Nano Banana 2.1, Veo 3.1, Gemini), OpenAI (GPT Image 2.5, GPT), ByteDance pela BytePlus ModelArk (Seedream 5.0, Seedance 2.0), Kling (3.0), MiniMax (H3, Image-01) e Replicate (Clarity Upscaler). A opção Auto escolhe o modelo sozinho. A lista fica em `src/providers/catalog.ts`, e o ID de API de cada modelo também pode ser corrigido no próprio app, em Ajustes > Modelos.
 
 Tudo que é gerado fica salvo no computador, na pasta de dados do app, e aparece na Biblioteca. O painel de Custos estima o gasto por modelo e por fabricante e compara com o valor da assinatura que você informar.
 

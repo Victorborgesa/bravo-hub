@@ -1,7 +1,7 @@
 // Executa nodes do canvas: junta as entradas conectadas, chama o fabricante,
 // guarda o resultado e registra o custo estimado.
 import type { MediaRef } from "../lib/media";
-import { modelById } from "../providers/catalog";
+import { modelById, resolveModel } from "../providers/catalog";
 import { generateImages, generateText, generateVideo, upscale } from "../providers";
 import type { ModelDef } from "../providers/types";
 import { useCosts } from "../store/costs";
@@ -64,8 +64,8 @@ function setNode(nodeId: string, patch: Partial<FlowNode["data"]>) {
   useSpaces.getState().updateNode(nodeId, patch);
 }
 
-function requireModel(id: string | undefined): ModelDef {
-  const model = id ? modelById(id) : undefined;
+function requireModel(id: string | undefined, capability: ModelDef["capability"] = "upscale", hasImage = false): ModelDef {
+  const model = capability === "upscale" ? (id ? modelById(id) : undefined) : resolveModel(id, capability, hasImage);
   if (!model) throw new Error("Modelo não encontrado no catálogo.");
   return model;
 }
@@ -77,7 +77,7 @@ async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal;
 
   switch (node.type) {
     case "assistant": {
-      const model = requireModel(d.modelId);
+      const model = requireModel(d.modelId, "text", inputs.images.length > 0);
       const prompt = joinPrompt(...inputs.texts, ...(inputs.batch ?? []), d.prompt);
       if (!prompt && !inputs.images.length) throw new Error("Conecte um texto ou imagem, ou escreva uma instrução.");
       const system = ASSISTANT_MODES[d.mode ?? "prompt"] ?? ASSISTANT_MODES.free;
@@ -89,7 +89,7 @@ async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal;
     }
 
     case "image": {
-      const model = requireModel(d.modelId);
+      const model = requireModel(d.modelId, "image", inputs.images.length > 0);
       const prompts = (inputs.batch?.length ? inputs.batch : [""]).map((item) => joinPrompt(...inputs.texts, item, d.prompt));
       if (prompts.some((p) => !p)) throw new Error("Escreva um prompt ou conecte um node de texto.");
       const results: MediaRef[] = [];
@@ -108,7 +108,7 @@ async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal;
     }
 
     case "video": {
-      const model = requireModel(d.modelId);
+      const model = requireModel(d.modelId, "video", inputs.images.length > 0);
       const prompts = (inputs.batch?.length ? inputs.batch : [""]).map((item) => joinPrompt(...inputs.texts, item, d.prompt));
       if (prompts.some((p) => !p) && !inputs.images.length) throw new Error("Escreva um prompt ou conecte texto/imagem.");
       const frames = inputs.images.length ? inputs.images : [undefined];
@@ -186,10 +186,7 @@ export function cancelNode(nodeId: string) {
 
 export const isRunning = (nodeId: string) => controllers.has(nodeId);
 
-/** Roda todos os nodes executáveis em ordem, respeitando as dependências. */
-export async function runSpace(spaceId: string) {
-  const space = useSpaces.getState().spaces.find((s) => s.id === spaceId);
-  if (!space) return;
+function topoOrder(space: Space): string[] {
   const indeg = new Map(space.nodes.map((n) => [n.id, 0]));
   for (const e of space.edges) indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
   const queue = space.nodes.filter((n) => !indeg.get(n.id)).map((n) => n.id);
@@ -202,14 +199,51 @@ export async function runSpace(spaceId: string) {
       if (indeg.get(e.target) === 0) queue.push(e.target);
     }
   }
-  for (const id of order) {
+  return order;
+}
+
+function reachable(space: Space, start: string, dir: "up" | "down"): Set<string> {
+  const seen = new Set([start]);
+  const stack = [start];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of space.edges) {
+      const next = dir === "up" ? (e.target === id ? e.source : null) : e.source === id ? e.target : null;
+      if (next && !seen.has(next)) {
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+  }
+  return seen;
+}
+
+async function runOrdered(spaceId: string, filter?: (space: Space) => Set<string>) {
+  const space = useSpaces.getState().spaces.find((s) => s.id === spaceId);
+  if (!space) return;
+  const only = filter?.(space);
+  let ran = 0;
+  for (const id of topoOrder(space)) {
+    if (only && !only.has(id)) continue;
     const node = space.nodes.find((n) => n.id === id)!;
     if (!NODE_SPECS[node.type!].runnable) continue;
-    const ok = await runNode(id);
-    if (!ok) {
+    ran++;
+    if (!(await runNode(id))) {
       notify("Fluxo interrompido no node com erro.", "error");
       return;
     }
   }
-  notify("Fluxo concluído.", "ok");
+  if (ran) notify("Fluxo concluído.", "ok");
 }
+
+/** Roda todos os nodes executáveis em ordem, respeitando as dependências. */
+export const runSpace = (spaceId: string) => runOrdered(spaceId);
+
+/** Roda tudo que alimenta este node e depois ele mesmo. */
+export const runUpTo = (spaceId: string, nodeId: string) => runOrdered(spaceId, (s) => reachable(s, nodeId, "up"));
+
+/** Roda este node e tudo que depende dele. */
+export const runFrom = (spaceId: string, nodeId: string) => runOrdered(spaceId, (s) => reachable(s, nodeId, "down"));
+
+/** Roda uma seleção de nodes na ordem do fluxo. */
+export const runSelection = (spaceId: string, ids: string[]) => runOrdered(spaceId, () => new Set(ids));

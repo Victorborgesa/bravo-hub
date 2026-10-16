@@ -12,7 +12,8 @@ import {
 } from "@xyflow/react";
 import { uid } from "../lib/media";
 import type { BaseNodeData, NodeKind } from "../canvas/ports";
-import { modelsFor } from "../providers/catalog";
+import { MODELS, modelsFor } from "../providers/catalog";
+import type { Capability } from "../providers/types";
 
 export type FlowNode = Node<BaseNodeData, NodeKind>;
 
@@ -24,6 +25,8 @@ export interface Space {
   nodes: FlowNode[];
   edges: Edge[];
 }
+
+const MODEL_CAPABILITY: Partial<Record<NodeKind, Capability>> = { assistant: "text", image: "image", video: "video" };
 
 function defaults(kind: NodeKind): BaseNodeData {
   switch (kind) {
@@ -37,6 +40,10 @@ function defaults(kind: NodeKind): BaseNodeData {
   }
 }
 
+/** Próximo número de um tipo de node no space ("Gerador de imagem #3"). */
+const nextSeq = (nodes: FlowNode[], kind: NodeKind) =>
+  nodes.filter((n) => n.type === kind).reduce((m, n) => Math.max(m, n.data.seq ?? 0), 0) + 1;
+
 function starterSpace(name: string): Space {
   const now = Date.now();
   const t = uid();
@@ -48,9 +55,9 @@ function starterSpace(name: string): Space {
     createdAt: now,
     updatedAt: now,
     nodes: [
-      { id: t, type: "text", position: { x: 0, y: 80 }, data: { text: "Fachada de edifício residencial contemporâneo ao entardecer, concreto aparente e madeira, paisagismo com gramíneas, luz quente nas janelas, fotografia arquitetônica" } },
-      { id: i, type: "image", position: { x: 380, y: 0 }, data: defaults("image") },
-      { id: v, type: "video", position: { x: 780, y: 0 }, data: { ...defaults("video"), prompt: "Câmera avança lentamente em direção à fachada, folhas balançando com o vento" } },
+      { id: t, type: "text", position: { x: 0, y: 60 }, data: { seq: 1, text: "Fachada de edifício residencial contemporâneo ao entardecer, concreto aparente e madeira, paisagismo com gramíneas, luz quente nas janelas, fotografia arquitetônica" } },
+      { id: i, type: "image", position: { x: 420, y: 0 }, data: { ...defaults("image"), seq: 1 } },
+      { id: v, type: "video", position: { x: 900, y: 0 }, data: { ...defaults("video"), seq: 1, prompt: "Câmera avança lentamente em direção à fachada, folhas balançando com o vento" } },
     ],
     edges: [
       { id: uid(), source: t, sourceHandle: "out-text", target: i, targetHandle: "in-text" },
@@ -59,9 +66,17 @@ function starterSpace(name: string): Space {
   };
 }
 
+interface Snapshot {
+  nodes: FlowNode[];
+  edges: Edge[];
+}
+
 interface SpacesState {
   spaces: Space[];
   activeId: string | null;
+  /** Histórico de desfazer/refazer do space aberto (só em memória). */
+  past: Snapshot[];
+  future: Snapshot[];
   open: (id: string | null) => void;
   create: (name?: string) => string;
   rename: (id: string, name: string) => void;
@@ -70,28 +85,45 @@ interface SpacesState {
   onNodesChange: (changes: NodeChange<FlowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (c: Connection) => void;
-  addNode: (kind: NodeKind, position: { x: number; y: number }) => void;
+  addNode: (kind: NodeKind, position: { x: number; y: number }, data?: Partial<BaseNodeData>) => string;
   updateNode: (nodeId: string, patch: Partial<BaseNodeData>) => void;
-  removeNode: (nodeId: string) => void;
+  removeNodes: (nodeIds: string[]) => void;
+  duplicateNodes: (nodeIds: string[]) => void;
+  snapshot: () => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 const touch = (space: Space, patch: Partial<Space>): Space => ({ ...space, ...patch, updatedAt: Date.now() });
+const HISTORY = 60;
 
 export const useSpaces = create<SpacesState>()(
   persist(
     (set, get) => {
+      const active = () => get().spaces.find((s) => s.id === get().activeId);
       const mutateActive = (fn: (s: Space) => Partial<Space>) =>
         set((st) => ({
           spaces: st.spaces.map((s) => (s.id === st.activeId ? touch(s, fn(s)) : s)),
         }));
+      // Uma ação do usuário pode gerar várias mudanças seguidas (ex.: excluir um
+      // node remove também suas conexões); elas viram um único passo de desfazer.
+      let lastSnap = 0;
+      const snapshot = () => {
+        const s = active();
+        if (!s || Date.now() - lastSnap < 80) return;
+        lastSnap = Date.now();
+        set((st) => ({ past: [...st.past, { nodes: s.nodes, edges: s.edges }].slice(-HISTORY), future: [] }));
+      };
 
       return {
         spaces: [],
         activeId: null,
-        open: (id) => set({ activeId: id }),
+        past: [],
+        future: [],
+        open: (id) => set({ activeId: id, past: [], future: [] }),
         create: (name = "Novo space") => {
           const space = starterSpace(name);
-          set((st) => ({ spaces: [space, ...st.spaces], activeId: space.id }));
+          set((st) => ({ spaces: [space, ...st.spaces], activeId: space.id, past: [], future: [] }));
           return space.id;
         },
         rename: (id, name) => set((st) => ({ spaces: st.spaces.map((s) => (s.id === id ? touch(s, { name }) : s)) })),
@@ -106,13 +138,37 @@ export const useSpaces = create<SpacesState>()(
           const copy: Space = { ...structuredClone(src), id: uid(), name: `${src.name} (cópia)`, createdAt: Date.now(), updatedAt: Date.now() };
           set((st) => ({ spaces: [copy, ...st.spaces] }));
         },
-        onNodesChange: (changes) => mutateActive((s) => ({ nodes: applyNodeChanges(changes, s.nodes) })),
-        onEdgesChange: (changes) => mutateActive((s) => ({ edges: applyEdgeChanges(changes, s.edges) })),
-        onConnect: (c) => mutateActive((s) => ({ edges: addEdge({ ...c, id: uid() }, s.edges) })),
-        addNode: (kind, position) =>
+        onNodesChange: (changes) => {
+          // Remoções e fim de arraste entram no histórico.
+          if (changes.some((c) => c.type === "remove" || (c.type === "position" && c.dragging === false))) snapshot();
+          mutateActive((s) => {
+            const removed = new Set(changes.filter((c) => c.type === "remove").map((c) => c.id));
+            return {
+              nodes: applyNodeChanges(changes, s.nodes),
+              edges: removed.size ? s.edges.filter((e) => !removed.has(e.source) && !removed.has(e.target)) : s.edges,
+            };
+          });
+        },
+        onEdgesChange: (changes) => {
+          if (changes.some((c) => c.type === "remove")) snapshot();
+          mutateActive((s) => ({ edges: applyEdgeChanges(changes, s.edges) }));
+        },
+        onConnect: (c) => {
+          snapshot();
+          // Uma entrada de quadro inicial/prompt aceita várias conexões; evitamos duplicatas exatas.
+          mutateActive((s) => ({ edges: addEdge({ ...c, id: uid() }, s.edges) }));
+        },
+        addNode: (kind, position, data) => {
+          snapshot();
+          const id = uid();
           mutateActive((s) => ({
-            nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), { id: uid(), type: kind, position, data: defaults(kind), selected: true }],
-          })),
+            nodes: [
+              ...s.nodes.map((n) => ({ ...n, selected: false })),
+              { id, type: kind, position, data: { ...defaults(kind), seq: nextSeq(s.nodes, kind), ...data }, selected: true },
+            ],
+          }));
+          return id;
+        },
         updateNode: (nodeId, patch) =>
           set((st) => ({
             spaces: st.spaces.map((s) =>
@@ -121,26 +177,77 @@ export const useSpaces = create<SpacesState>()(
                 : s,
             ),
           })),
-        removeNode: (nodeId) =>
+        removeNodes: (ids) => {
+          snapshot();
+          const drop = new Set(ids);
           mutateActive((s) => ({
-            nodes: s.nodes.filter((n) => n.id !== nodeId),
-            edges: s.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
-          })),
+            nodes: s.nodes.filter((n) => !drop.has(n.id)),
+            edges: s.edges.filter((e) => !drop.has(e.source) && !drop.has(e.target)),
+          }));
+        },
+        duplicateNodes: (ids) => {
+          const s = active();
+          if (!s || !ids.length) return;
+          snapshot();
+          const map = new Map(ids.map((id) => [id, uid()]));
+          const seqs = new Map<NodeKind, number>();
+          const copies = s.nodes
+            .filter((n) => map.has(n.id))
+            .map((n) => {
+              const kind = n.type!;
+              const seq = seqs.get(kind) ?? nextSeq(s.nodes, kind);
+              seqs.set(kind, seq + 1);
+              return { ...structuredClone(n), id: map.get(n.id)!, position: { x: n.position.x + 40, y: n.position.y + 40 }, selected: true, data: { ...structuredClone(n.data), seq, status: "idle" as const } };
+            });
+          // Conexões internas à seleção também são copiadas.
+          const edges = s.edges
+            .filter((e) => map.has(e.source) && map.has(e.target))
+            .map((e) => ({ ...e, id: uid(), source: map.get(e.source)!, target: map.get(e.target)! }));
+          mutateActive((sp) => ({
+            nodes: [...sp.nodes.map((n) => ({ ...n, selected: false })), ...copies],
+            edges: [...sp.edges, ...edges],
+          }));
+        },
+        snapshot,
+        undo: () => {
+          const { past } = get();
+          const s = active();
+          if (!s || !past.length) return;
+          const prev = past[past.length - 1];
+          set((st) => ({ past: st.past.slice(0, -1), future: [{ nodes: s.nodes, edges: s.edges }, ...st.future].slice(0, HISTORY) }));
+          mutateActive(() => prev);
+        },
+        redo: () => {
+          const { future } = get();
+          const s = active();
+          if (!s || !future.length) return;
+          const next = future[0];
+          set((st) => ({ future: st.future.slice(1), past: [...st.past, { nodes: s.nodes, edges: s.edges }] }));
+          mutateActive(() => next);
+        },
       };
     },
     {
       name: "bravo-spaces",
-      version: 1,
-      // Jobs interrompidos pelo fechamento do app não continuam rodando.
+      version: 2,
+      partialize: (st) => ({ spaces: st.spaces }),
       merge: (persisted, current) => {
         const p = persisted as Partial<SpacesState>;
+        const known = new Set(MODELS.map((m) => m.id));
         const spaces = (p.spaces ?? []).map((s) => ({
           ...s,
-          nodes: s.nodes.map((n) =>
-            n.data.status === "running" ? { ...n, data: { ...n.data, status: "idle" as const, statusText: undefined } } : n,
-          ),
+          nodes: s.nodes.map((n, i) => {
+            let data = n.data;
+            // Jobs interrompidos pelo fechamento do app não continuam rodando.
+            if (data.status === "running") data = { ...data, status: "idle", statusText: undefined };
+            // Modelos aposentados voltam para o padrão do tipo.
+            const cap = MODEL_CAPABILITY[n.type!];
+            if (cap && data.modelId && !known.has(data.modelId)) data = { ...data, modelId: modelsFor(cap)[0].id };
+            if (data.seq == null) data = { ...data, seq: i + 1 };
+            return data === n.data ? n : { ...n, data };
+          }),
         }));
-        return { ...current, ...p, spaces, activeId: null };
+        return { ...current, spaces, activeId: null };
       },
     },
   ),

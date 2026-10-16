@@ -54,19 +54,25 @@ interface Task {
 
 export async function seedanceVideo(job: VideoJob, ctx: JobContext): Promise<MediaRef[]> {
   const h = await headers();
-  // Parâmetros do Seedance vão como comandos no fim do texto.
-  const text = `${job.prompt} --ratio ${job.aspect} --duration ${job.duration} --resolution 1080p --watermark false`;
-  const content: Record<string, unknown>[] = [{ type: "text", text }];
+  const content: Record<string, unknown>[] = [{ type: "text", text: job.prompt }];
   if (job.firstFrame) {
     content.push({ type: "image_url", image_url: { url: await mediaDataUrl(job.firstFrame) }, role: "first_frame" });
   }
-  // O Lite separa modelos de texto→vídeo e imagem→vídeo.
-  const model = job.firstFrame ? job.model.apiModel.replace("-t2v-", "-i2v-") : job.model.apiModel;
-
   const task = await requestJson<{ id: string }>(
     "bytedance",
     `${BASE}/contents/generations/tasks`,
-    { method: "POST", headers: h, body: JSON.stringify({ model, content }) },
+    {
+      method: "POST",
+      headers: h,
+      body: JSON.stringify({
+        model: job.model.apiModel,
+        content,
+        ratio: job.firstFrame ? "adaptive" : job.aspect,
+        duration: job.duration,
+        resolution: job.model.resolution ?? "720p",
+        watermark: false,
+      }),
+    },
     ctx,
   );
   const done = await poll(async () => {

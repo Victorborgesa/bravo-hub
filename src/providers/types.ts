@@ -22,6 +22,8 @@ export interface ModelDef {
   requiresImage?: boolean;
   aspects: string[];
   durations?: number[];
+  /** Resolução enviada a APIs de vídeo que pedem esse campo. */
+  resolution?: string;
   price: Price;
   note?: string;
 }
