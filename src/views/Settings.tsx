@@ -7,6 +7,9 @@ import type { ProviderId } from "../providers/types";
 import { isTauri, secretDelete, secretGet, secretSet } from "../lib/platform";
 import { notify } from "../store/toasts";
 import { PageHead } from "./PageHead";
+import { useUpdates } from "../store/updates";
+import { relativeDate } from "../lib/format";
+import { getVersion } from "@tauri-apps/api/app";
 import { deleteMedia, formatBytes, scanMedia, type MediaUsage } from "../lib/storage";
 
 function SecretField({ secretKey, label, onChange }: { secretKey: string; label: string; onChange: () => void }) {
@@ -128,6 +131,41 @@ function ModelIds() {
   );
 }
 
+/** Versão instalada e verificação manual de atualizações. */
+function AppVersion() {
+  const { status, update, progress, error, checkedAt, check, install } = useUpdates();
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    if (isTauri) getVersion().then(setVersion).catch(() => undefined);
+  }, []);
+  if (!isTauri) return null;
+  const message =
+    status === "checking" ? "Verificando…" :
+    status === "latest" ? "Você está na versão mais recente." :
+    status === "available" ? `Versão ${update?.version} disponível.` :
+    status === "installing" ? `Baixando a versão ${update?.version}${typeof progress === "number" ? ` · ${progress}%` : "…"}` :
+    status === "error" ? `Não consegui verificar: ${error}` : "";
+  return (
+    <div className="version-row">
+      <div>
+        <span className="field-label">Bravo Hub</span>
+        <span className="version-num">v{version}</span>
+      </div>
+      <div className="version-msg">
+        <span className={status === "error" ? "danger" : status === "available" ? "ok" : "muted"}>{message}</span>
+        {checkedAt && status !== "checking" && <small className="muted">verificado {relativeDate(checkedAt)}</small>}
+      </div>
+      {status === "available" ? (
+        <button className="btn btn-primary" onClick={install}>Atualizar agora</button>
+      ) : (
+        <button className="btn btn-ghost" onClick={check} disabled={status === "checking" || status === "installing"}>
+          Verificar atualizações
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Storage() {
   const [usage, setUsage] = useState<MediaUsage | null>(null);
   const [busy, setBusy] = useState(false);
@@ -173,6 +211,7 @@ export function Settings() {
   return (
     <div className="page">
       <PageHead index="004" eyebrow="Ajustes" title="Conexões com os fabricantes" lead="Cada chave fica guardada no cofre do Windows, neste computador. O Bravo Hub chama a API oficial de cada fabricante direto, sem intermediários." />
+      <AppVersion />
       {!isTauri && (
         <div className="notice">
           <KeyRound size={16} />

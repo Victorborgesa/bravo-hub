@@ -170,6 +170,13 @@ select.field option, select.field optgroup { background: var(--surface); }
 .secret-row .btn { height: 36px; }
 
 .models-table { margin-top: 56px; }
+.version-row { display: flex; align-items: center; gap: 28px; padding: 18px 22px; margin-bottom: 28px; border-radius: 14px; background: var(--glass); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge); border: 1px solid rgba(255, 255, 255, 0.08); }
+.version-row > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.version-num { font-family: var(--mono); font-size: 20px; color: var(--paper); }
+.version-msg { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
+.version-msg small { font-family: var(--mono); font-size: 11px; }
+.version-msg .ok { color: var(--ok); }
+.version-msg .danger { color: var(--danger); }
 .storage-row { display: flex; align-items: center; gap: 24px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 14px; }
 .storage-row .btn { margin-left: auto; }
 .small-lead { font-size: 13px; line-height: 1.6; max-width: 720px; margin: -6px 0 18px; }

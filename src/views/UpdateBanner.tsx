@@ -1,39 +1,44 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Download, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { checkForUpdate, type AvailableUpdate } from "../lib/system";
+import { useUpdates } from "../store/updates";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 
 /** Avisa quando há versão nova e instala com um clique (o app reinicia sozinho). */
 export function UpdateBanner() {
-  const [update, setUpdate] = useState<AvailableUpdate | null>(null);
-  const [progress, setProgress] = useState<number | null | "idle">("idle");
+  const { status, update, progress, check, install } = useUpdates();
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    const look = () => checkForUpdate().then(setUpdate).catch(() => undefined);
-    look();
-    const t = setInterval(look, SIX_HOURS);
-    return () => clearInterval(t);
-  }, []);
+    check();
+    const t = setInterval(check, SIX_HOURS);
+    // Ao voltar para o app depois de um tempo, procura de novo.
+    const onFocus = () => {
+      const last = useUpdates.getState().checkedAt ?? 0;
+      if (Date.now() - last > 30 * 60 * 1000) check();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [check]);
 
-  const installing = progress !== "idle";
+  const show = update && !hidden && (status === "available" || status === "installing");
   return (
     <AnimatePresence>
-      {update && !hidden && (
+      {show && (
         <motion.div className="update-banner" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}>
           <Download size={16} />
           <span>
-            {installing
+            {status === "installing"
               ? `Baixando a versão ${update.version}${typeof progress === "number" ? ` · ${progress}%` : "…"}`
               : `Versão ${update.version} disponível`}
           </span>
-          {!installing && (
+          {status === "available" && (
             <>
-              <button className="btn btn-primary small" onClick={() => { setProgress(null); update.install(setProgress).catch(() => setProgress("idle")); }}>
-                Atualizar agora
-              </button>
+              <button className="btn btn-primary small" onClick={install}>Atualizar agora</button>
               <button className="icon-btn" onClick={() => setHidden(true)} title="Depois"><X size={14} /></button>
             </>
           )}

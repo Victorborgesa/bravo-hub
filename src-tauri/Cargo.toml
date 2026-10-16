@@ -1,6 +1,6 @@
 [package]
 name = "bravo-hub"
-version = "0.4.1"
+version = "0.4.2"
 description = "Bravo Hub: hub desktop de IAs da Bravo Visuals"
 authors = ["Bravo Visuals"]
 edition = "2021"
