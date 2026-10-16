@@ -63,6 +63,7 @@ export const MODELS: ModelDef[] = [
   { id: "veo-3-1", label: "Veo 3.1", provider: "google", capability: "video", apiModel: "veo-3.1-generate-001", acceptsImage: true, aspects: ["16:9", "9:16"], durations: [4, 6, 8], price: { usd: 0.4, unit: "segundo" } },
   { id: "veo-3-1-fast", label: "Veo 3.1 Fast", provider: "google", capability: "video", apiModel: "veo-3.1-fast-generate-001", acceptsImage: true, aspects: ["16:9", "9:16"], durations: [4, 6, 8], price: { usd: 0.15, unit: "segundo" } },
   { id: "veo-3-1-lite", label: "Veo 3.1 Lite", provider: "google", capability: "video", apiModel: "veo-3.1-lite-generate-001", acceptsImage: true, aspects: ["16:9", "9:16"], durations: [4, 6, 8], price: { usd: 0.08, unit: "segundo" } },
+  { id: "seedance-2-5", label: "Seedance 2.5", provider: "bytedance", capability: "video", apiModel: "dreamina-seedance-2-5-260628", acceptsImage: true, aspects: VID_ASPECTS, durations: [5, 10, 15, 30], resolution: "1080p", price: { usd: 0.2, unit: "segundo" }, note: "Até 30s num só vídeo" },
   { id: "seedance-2", label: "Seedance 2.0", provider: "bytedance", capability: "video", apiModel: "dreamina-seedance-2-0-260128", acceptsImage: true, aspects: VID_ASPECTS, durations: [5, 8, 10, 15], resolution: "1080p", price: { usd: 0.15, unit: "segundo" } },
   { id: "seedance-2-fast", label: "Seedance 2.0 Fast", provider: "bytedance", capability: "video", apiModel: "dreamina-seedance-2-0-fast-260128", acceptsImage: true, aspects: VID_ASPECTS, durations: [5, 8, 10, 15], resolution: "720p", price: { usd: 0.08, unit: "segundo" } },
   { id: "seedance-2-mini", label: "Seedance 2.0 Mini", provider: "bytedance", capability: "video", apiModel: "dreamina-seedance-2-0-mini-260615", acceptsImage: true, aspects: VID_ASPECTS, durations: [5, 8, 10, 15], resolution: "720p", price: { usd: 0.04, unit: "segundo" } },
@@ -114,6 +115,6 @@ export function resolveModel(id: string | undefined, capability: ModelDef["capab
 /** Modelos em destaque no topo do seletor. */
 export const FEATURED: Record<string, string[]> = {
   image: ["nano-banana-pro", "gpt-image-2-5-sunburst", "seedream-5-pro", "kling-image-3"],
-  video: ["veo-3-1", "kling-3", "seedance-2", "minimax-h3"],
+  video: ["veo-3-1", "kling-3", "seedance-2-5", "minimax-h3"],
   text: ["gemini-flash", "gpt-text"],
 };
