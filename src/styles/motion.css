@@ -1,0 +1,148 @@
+/* ============================================================
+   BRAVO × ORBIT — camada de movimento e vidro
+   Regras herdadas da biblioteca Orbit:
+   1. Frequência decide se anima: o que se usa toda hora (menu de
+      inserção, atalhos) aparece na hora.
+   2. Toda animação tem propósito: resposta, consistência espacial,
+      indicação de estado, evitar salto brusco ou deleite.
+   3. Só transform, opacity, filter e clip-path.
+   4. Interface abaixo de 300ms; momentos raros (imagem nova) podem mais.
+   5. Nunca ease-in, nunca scale(0), nunca transition: all.
+   ============================================================ */
+
+/* ---------- Fundo aurora ----------
+   Campo de cor em deriva lenta: dá ao vidro algo para refratar. */
+body { background: var(--bg); }
+.aurora {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 8% 0%, var(--aurora-1), transparent 58%),
+    radial-gradient(110% 80% at 92% 12%, var(--aurora-4), transparent 56%),
+    radial-gradient(120% 100% at 80% 96%, var(--aurora-2), transparent 60%),
+    radial-gradient(100% 90% at 18% 88%, var(--aurora-3), transparent 58%),
+    var(--bg);
+  box-shadow: inset 0 0 34vw 6vw rgba(10, 11, 8, 0.45);
+}
+.aurora::before, .aurora::after { content: ""; position: absolute; border-radius: 50%; filter: blur(120px); }
+.aurora::before {
+  width: 72vw; height: 72vw; top: -26vw; left: -16vw;
+  background: radial-gradient(circle at 42% 42%, var(--aurora-1), transparent 66%);
+  animation: aurora-a 34s var(--ease-in-out) infinite alternate;
+}
+.aurora::after {
+  width: 64vw; height: 64vw; bottom: -24vw; right: -14vw;
+  background: radial-gradient(circle at 58% 58%, var(--aurora-2), transparent 64%);
+  animation: aurora-b 42s var(--ease-in-out) infinite alternate;
+}
+.aurora span {
+  position: absolute; width: 46vw; height: 46vw; top: 30%; left: 38%; border-radius: 50%; filter: blur(110px);
+  background: radial-gradient(circle, var(--aurora-3), transparent 64%);
+  animation: aurora-c 50s var(--ease-in-out) infinite alternate;
+}
+@keyframes aurora-a { to { transform: translate(14vw, 10vh) scale(1.12); } }
+@keyframes aurora-b { to { transform: translate(-12vw, -8vh) scale(1.08); } }
+@keyframes aurora-c { to { transform: translate(-16vw, 12vh) scale(0.9); } }
+/* Grão fino por cima: tira o aspecto de gradiente digital. */
+.grain {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.app { position: relative; z-index: 1; }
+.canvas, .react-flow, .react-flow.dark { background: transparent; --xy-background-color-default: transparent; }
+.sidebar { background: rgba(48, 51, 43, 0.55); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge); border-right-color: rgba(255, 255, 255, 0.06); }
+
+/* ---------- Vidro nos elementos flutuantes ---------- */
+.canvas-bar, .side-tools, .zoom-ctl, .selection-bar, .node-toolbar, .inspector, .update-banner, .run-panel {
+  background: var(--glass); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--shadow);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.palette, .popover, .tb-menu, .toast, .modal {
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), 0 30px 60px -20px rgba(0, 0, 0, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.node-card { box-shadow: var(--glass-edge), 0 20px 40px -24px rgba(0, 0, 0, 0.7); }
+.node.is-selected .node-card { box-shadow: var(--glass-edge), 0 0 0 4px rgba(237, 237, 234, 0.08), 0 20px 40px -24px rgba(0, 0, 0, 0.7); }
+
+/* ---------- Rótulos técnicos em mono ---------- */
+.eyebrow, .field-label, .menu-section, .stat-label, .tag, .zoom-value, .spent, .sel-count, .crumb, .list-index, .palette-foot, .tpl-desc + *, .timer, .run-panel small {
+  font-family: var(--mono); letter-spacing: 0.08em;
+}
+.field-label, .menu-section, .stat-label, .eyebrow { text-transform: uppercase; letter-spacing: 0.18em; font-size: 10.5px; }
+.page-head .eyebrow { font-size: 11.5px; }
+.stat-value, .bar-value, .num { font-family: var(--mono); letter-spacing: -0.01em; }
+
+/* ---------- Resposta ao toque ---------- */
+.btn, .pill, .tool-btn, .tb-btn, .chip, .run-btn, .dock-item { transition-timing-function: var(--ease-out); }
+.btn:active, .pill:active, .chip:active, .tb-btn:active { transform: scale(0.97); }
+
+/* ---------- Imagem nova: revela saindo do desfoque ----------
+   O desfoque mascara a troca: o olho lê uma transformação, não dois objetos. */
+.develop { animation: develop 700ms var(--ease-out) backwards; }
+@keyframes develop {
+  from { opacity: 0; filter: blur(14px) saturate(0.6); transform: scale(1.04); }
+  to { opacity: 1; filter: blur(0) saturate(1); transform: scale(1); }
+}
+
+/* ---------- Gerando: esqueleto, cronômetro e borda respirando ---------- */
+.node.is-running .node-card::after {
+  content: ""; position: absolute; inset: -1.5px; border-radius: inherit; border: 1.5px solid var(--port-text);
+  pointer-events: none; animation: breathe 2s var(--ease-in-out) infinite;
+}
+@keyframes breathe { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.7; } }
+.node-busy { background: rgba(24, 25, 21, 0.55); animation: none; }
+.node-busy::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; opacity: 0.6;
+  background: linear-gradient(105deg, transparent 30%, rgba(210, 200, 160, 0.12) 45%, rgba(237, 237, 234, 0.16) 50%, rgba(210, 200, 160, 0.12) 55%, transparent 70%);
+  background-size: 250% 100%; animation: scan 1.8s linear infinite;
+}
+@keyframes scan { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.node-busy .scanline { position: absolute; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(237, 237, 234, 0.5), transparent); animation: scanline 2.4s var(--ease-in-out) infinite; }
+@keyframes scanline { 0% { top: 8%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { top: 92%; opacity: 0; } }
+.timer { font-size: 26px; letter-spacing: 0.02em; font-weight: 400; color: var(--paper); font-variant-numeric: tabular-nums; position: relative; }
+.node-busy > span:not(.timer) { position: relative; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-soft); }
+
+/* ---------- Painel de execução do fluxo ---------- */
+.run-panel { position: absolute; z-index: 12; left: 64px; bottom: 12px; width: 330px; border: 1px solid; border-radius: 16px; overflow: hidden; }
+.run-head { display: flex; align-items: center; gap: 10px; padding: 12px 10px 10px 14px; font-size: 13px; }
+.run-title { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
+.run-title small { font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.06em; }
+.timer.small-timer { font-size: 15px; color: var(--text-soft); }
+.run-head .grow { flex: 1; }
+.run-steps { list-style: none; margin: 0; padding: 0 6px 8px; max-height: 260px; overflow-y: auto; }
+.run-step { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 9px; font-size: 12.5px; color: var(--text-soft); }
+.run-step[data-state="running"] { background: rgba(255, 255, 255, 0.05); color: var(--paper); }
+.run-step[data-state="done"] { color: var(--text-soft); }
+.run-step[data-state="error"], .run-step[data-state="skipped"] { color: var(--muted); }
+.run-step small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.step-dot { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line-strong); }
+.run-step[data-state="running"] .step-dot { border-color: var(--port-text); color: var(--port-text); }
+.run-step[data-state="done"] .step-dot { background: var(--ok); border-color: var(--ok); color: var(--olive); }
+.run-step[data-state="error"] .step-dot { border-color: var(--danger); color: var(--danger); }
+.run-bar { height: 2px; background: rgba(255, 255, 255, 0.06); }
+.run-bar > div { height: 100%; background: var(--paper); transform-origin: left; transition: transform 400ms var(--ease-out); }
+
+/* ---------- Pressionar para confirmar ----------
+   Ação destrutiva ganha peso: preenche devagar e linear enquanto
+   segura; soltar volta rápido. */
+.hold { position: relative; overflow: hidden; }
+.hold-fill { position: absolute; inset: 0; background: var(--danger); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); pointer-events: none; }
+.hold.is-holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path var(--hold-ms, 1200ms) linear; }
+.hold-label { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; }
+.hold.is-holding .hold-label { color: #fff; }
+
+/* ---------- Medidor de gasto na barra lateral ---------- */
+.meter { margin: auto 4px 18px; width: auto; padding: 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); box-shadow: var(--glass-edge); text-align: left; transition: background 200ms var(--ease-out); }
+.meter:hover { background: rgba(255, 255, 255, 0.08); }
+.meter-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.meter-value { font-family: var(--mono); font-size: 20px; color: var(--paper); letter-spacing: -0.02em; }
+.meter-of { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.meter-track { height: 4px; margin: 10px 0 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.meter-track > div { height: 100%; border-radius: 4px; background: var(--sage-light); transform-origin: left; }
+.meter-track > div.over { background: var(--danger); }
+.meter-foot { display: flex; justify-content: space-between; white-space: nowrap; gap: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora::before, .aurora::after, .aurora span { animation: none; }
+  .develop { animation: develop-soft 300ms ease-out backwards; }
+  @keyframes develop-soft { from { opacity: 0; } to { opacity: 1; } }
+}

@@ -5,6 +5,7 @@ import { PROVIDERS } from "../providers/catalog";
 import type { ProviderId } from "../providers/types";
 import { formatDate, formatUsd } from "../lib/format";
 import { PageHead } from "./PageHead";
+import { useBudget } from "../store/budget";
 
 const RANGES = [
   { id: 7, label: "7 dias" },
@@ -15,14 +16,7 @@ const RANGES = [
 export function Costs() {
   const { entries, clear } = useCosts();
   const [days, setDays] = useState(30);
-  const [subscription, setSubscription] = useState(() => {
-    try {
-      return Number(localStorage.getItem("bravo-subscription") ?? "0");
-    } catch {
-      return 0;
-    }
-  });
-
+  const { monthly: subscription, set: setSubscription } = useBudget();
   const scoped = useMemo(() => entries.filter((e) => e.ts > Date.now() - days * 86400000), [entries, days]);
   const total = scoped.reduce((a, e) => a + e.usd, 0);
   const byProvider = useMemo(() => {
@@ -58,28 +52,20 @@ export function Costs() {
         <Stat label="Projeção mensal" value={formatUsd(monthly)} />
         <Stat label="Gerações" value={String(scoped.filter((e) => e.ok).length)} />
         <div className="stat">
-          <span className="stat-label">Assinatura atual (US$/mês)</span>
+          <span className="stat-label">Orçamento mensal (US$)</span>
           <input
             className="field stat-input"
             type="number"
             min={0}
             value={subscription || ""}
             placeholder="ex.: 45"
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setSubscription(v);
-              try {
-                localStorage.setItem("bravo-subscription", String(v));
-              } catch {
-                /* preferência opcional */
-              }
-            }}
+            onChange={(e) => setSubscription(Number(e.target.value))}
           />
           {subscription > 0 && (
             <span className={`stat-delta ${monthly <= subscription ? "good" : "bad"}`}>
               {monthly <= subscription
-                ? `Economia projetada de ${formatUsd(subscription - monthly)}/mês`
-                : `${formatUsd(monthly - subscription)}/mês acima da assinatura`}
+                ? `${formatUsd(subscription - monthly)}/mês abaixo do orçamento`
+                : `${formatUsd(monthly - subscription)}/mês acima do orçamento`}
             </span>
           )}
         </div>

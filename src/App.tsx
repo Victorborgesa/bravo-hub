@@ -28,9 +28,14 @@ function Toasts() {
             layout
             className={`toast ${t.tone}`}
             onClick={() => dismiss(t.id)}
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={{ left: 0.08, right: 0.9 }}
+            onDragEnd={(_, info) => (info.offset.x > 80 || info.velocity.x > 400) && dismiss(t.id)}
             initial={{ opacity: 0, y: 16, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 24 }}
+            exit={{ opacity: 0, x: 60, transition: { duration: 0.2 } }}
+            transition={{ type: "spring", stiffness: 500, damping: 40 }}
           >
             {t.message}
           </motion.button>
@@ -48,6 +53,9 @@ export function App() {
   const key = activeId ? `canvas-${activeId}` : view;
 
   return (
+    <>
+    <div className="aurora" aria-hidden><span /></div>
+    <div className="grain" aria-hidden />
     <div className="app">
       <AnimatePresence mode="wait">
         {!activeId && (
@@ -80,5 +88,6 @@ export function App() {
       <Toasts />
       <UpdateBanner />
     </div>
+    </>
   );
 }

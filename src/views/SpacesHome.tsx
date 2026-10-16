@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { TemplatePicker } from "./TemplatePicker";
+import { HoldButton } from "./HoldButton";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { useSpaces } from "../store/spaces";
 import { relativeDate } from "../lib/format";
@@ -50,13 +51,9 @@ export function SpacesHome() {
                   <button className="icon-btn" title="Duplicar" onClick={() => duplicate(s.id)}>
                     <Copy size={15} />
                   </button>
-                  <button
-                    className="icon-btn"
-                    title="Excluir"
-                    onClick={() => confirm(`Excluir o space "${s.name}"?`) && remove(s.id)}
-                  >
+                  <HoldButton className="icon-btn" title="Segure para excluir" onConfirm={() => remove(s.id)}>
                     <Trash2 size={15} />
-                  </button>
+                  </HoldButton>
                 </div>
               </motion.li>
             );

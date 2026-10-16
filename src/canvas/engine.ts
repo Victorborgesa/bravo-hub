@@ -9,6 +9,7 @@ import { useSpaces, type FlowNode, type Space } from "../store/spaces";
 import { notify } from "../store/toasts";
 import { isTauri } from "../lib/platform";
 import { notifyDesktop } from "../lib/system";
+import { useRuns } from "../store/runs";
 import { handleType, NODE_SPECS, type NodeOutputs } from "./ports";
 
 const controllers = new Map<string, AbortController>();
@@ -219,8 +220,8 @@ export async function runNode(nodeId: string, confirmed = false): Promise<boolea
 
   const controller = new AbortController();
   controllers.set(nodeId, controller);
-  setNode(nodeId, { status: "running", statusText: "Enviando…", error: undefined });
   const started = Date.now();
+  setNode(nodeId, { status: "running", statusText: "Enviando…", error: undefined, startedAt: started });
   const label = `${NODE_SPECS[node.type!].title} #${node.data.seq ?? 1}`;
   try {
     const outputs = await execute(space, node, {
@@ -293,6 +294,16 @@ async function runOrdered(spaceId: string, filter?: (space: Space) => Set<string
     return { jobs: acc.jobs + Math.max(e.jobs, 1), usd: acc.usd + e.usd };
   }, { jobs: 0, usd: 0 });
   if (!(await confirmCost(total, "O fluxo"))) return;
+  const runs = useRuns.getState();
+  runs.start({
+    spaceId,
+    startedAt: Date.now(),
+    estimateUsd: total.usd,
+    steps: ids.map((id) => {
+      const n = space.nodes.find((x) => x.id === id)!;
+      return { nodeId: id, label: `${NODE_SPECS[n.type!].title} #${n.data.seq ?? 1}`, state: "waiting" as const };
+    }),
+  });
 
   // Roda em paralelo tudo que já tem as dependências prontas, até PARALLEL por vez.
   const set = new Set(ids);
@@ -307,6 +318,7 @@ async function runOrdered(spaceId: string, filter?: (space: Space) => Set<string
       if (need.some((d) => failed.has(d))) {
         pending.delete(id);
         failed.add(id);
+        runs.step(id, { state: "skipped" });
         continue;
       }
       if (running.size >= PARALLEL || !need.every((d) => done.has(d))) continue;
@@ -315,11 +327,20 @@ async function runOrdered(spaceId: string, filter?: (space: Space) => Set<string
         done.add(id);
         continue;
       }
-      running.set(id, runNode(id, true).then((ok) => ((ok ? done : failed).add(id), id)));
+      runs.step(id, { state: "running", startedAt: Date.now() });
+      running.set(
+        id,
+        runNode(id, true).then((ok) => {
+          (ok ? done : failed).add(id);
+          runs.step(id, { state: ok ? "done" : "error", endedAt: Date.now() });
+          return id;
+        }),
+      );
     }
     if (!running.size) break;
     running.delete(await Promise.race(running.values()));
   }
+  runs.finish();
   if (failed.size) notify(`${failed.size} node(s) não rodaram por erro em uma etapa anterior.`, "error");
   else if (done.size) {
     notify("Fluxo concluído.", "ok");

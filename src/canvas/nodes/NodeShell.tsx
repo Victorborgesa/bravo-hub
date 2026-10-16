@@ -1,11 +1,12 @@
 import { Handle, NodeToolbar, Position, useEdges, useStore } from "@xyflow/react";
 import { motion, AnimatePresence } from "motion/react";
-import { AlertTriangle, ChevronDown, Copy, Download, Expand, Loader2, Play, Settings2, Square, Trash2, RotateCcw, Type, Image as ImageIcon, Clapperboard } from "lucide-react";
+import { AlertTriangle, ChevronDown, Copy, Download, Expand, Play, Settings2, Square, Trash2, RotateCcw, Type, Image as ImageIcon, Clapperboard } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cancelNode, runFrom, runNode, runUpTo } from "../engine";
 import { handleId, NODE_SPECS, type BaseNodeData, type NodeKind, type PortType } from "../ports";
 import { useSpaces } from "../../store/spaces";
 import { NodeIcon } from "./icons";
+import { Timer } from "../Timer";
 import { downloadMedia, useInspector, useLightbox } from "./controls";
 
 const PORT_ICON: Record<PortType, typeof Type> = { text: Type, image: ImageIcon, video: Clapperboard };
@@ -115,7 +116,8 @@ export function NodeShell({ id, kind, data, selected, children, width = 320 }: P
         <AnimatePresence>
           {running && (
             <motion.div className="node-busy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <Loader2 size={18} className="spin" />
+              <i className="scanline" />
+              <Timer since={data.startedAt} />
               <span>{data.statusText ?? "Gerando…"}</span>
             </motion.div>
           )}

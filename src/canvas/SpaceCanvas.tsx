@@ -21,6 +21,7 @@ import { handleType, type NodeKind } from "./ports";
 import { runSelection, runSpace } from "./engine";
 import { Palette, type PaletteChoice } from "./Palette";
 import { Inspector } from "./Inspector";
+import { RunPanel } from "./RunPanel";
 import { useActiveSpace, useSpaces } from "../store/spaces";
 import { useCosts } from "../store/costs";
 import { formatUsd } from "../lib/format";
@@ -254,6 +255,7 @@ function Canvas() {
       <SideTools tool={tool} setTool={setTool} onAdd={() => openPaletteAt(84, 120)} />
       <ZoomControl showMap={showMap} toggleMap={() => setShowMap((m) => !m)} />
       <SelectionBar />
+      <RunPanel />
       <Inspector />
 
       <AnimatePresence>

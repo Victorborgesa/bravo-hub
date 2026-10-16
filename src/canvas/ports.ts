@@ -46,6 +46,8 @@ export interface BaseNodeData {
   seq?: number;
   status?: "idle" | "running" | "done" | "error";
   statusText?: string;
+  /** Quando a geração atual começou, para o cronômetro. */
+  startedAt?: number;
   error?: string;
   outputs?: NodeOutputs;
   gallery?: MediaRef[];
