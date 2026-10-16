@@ -1,7 +1,8 @@
 # Gera o instalador do Windows.
-# - Manual (aba Actions > Run workflow): só gera o instalador como artefato.
-# - Tag "v0.4.0" etc.: publica uma release com o instalador e o latest.json,
-#   que é o que a atualização automática do app consulta.
+# - Manual (aba Actions > Run workflow): gera o instalador como artefato.
+#   Marcando "publicar", também cria a release da versão do package.json
+#   (tag vX.Y.Z) com o instalador e o latest.json da atualização automática.
+# - Tag "v0.4.0" etc. enviada pelo git: publica a release do mesmo jeito.
 # A atualização automática precisa do segredo TAURI_SIGNING_PRIVATE_KEY no
 # repositório (Settings > Secrets and variables > Actions). Sem ele, o build
 # funciona igual, só não gera os arquivos de atualização.
@@ -9,6 +10,11 @@ name: Instalador Windows
 
 on:
   workflow_dispatch:
+    inputs:
+      publicar:
+        description: Publicar como versão oficial (o app instalado recebe a atualização)
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
@@ -42,8 +48,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: "Bravo Hub ${{ github.ref_name }}"
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || (inputs.publicar && 'v__VERSION__' || '') }}
+          releaseName: "Bravo Hub v__VERSION__"
           releaseBody: "Baixe o instalador .exe abaixo. Quem já tem o app recebe esta versão pela atualização automática."
           releaseDraft: false
           includeUpdaterJson: ${{ env.HAS_SIGNING_KEY == 'true' }}
