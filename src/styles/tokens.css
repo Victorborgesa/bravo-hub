@@ -1,0 +1,34 @@
+/* Identidade Bravo Visuals: oliva escuro, sálvia, off-white e Roboto leve. */
+:root {
+  --font: "Roboto", system-ui, sans-serif;
+
+  --bg: #1d1f1a;
+  --bg-grid: #2e3129;
+  --olive: #3c3f36;
+  --surface: #272922;
+  --surface-2: #30332b;
+  --surface-3: #3a3d34;
+  --line: #474a40;
+  --line-strong: #6a6e60;
+
+  --text: #ededea;
+  --text-soft: #c9cac2;
+  --muted: #9a9d90;
+  --sage: #7d8270;
+  --sage-light: #a9ae99;
+  --paper: #f5f5f4;
+
+  /* Cores das portas do canvas, todas dentro da paleta terrosa. */
+  --port-text: #d2c8a0;
+  --port-image: #9fb79b;
+  --port-video: #c69d84;
+
+  --ok: #9fb79b;
+  --warn: #d6b56f;
+  --danger: #cf7f6b;
+
+  --radius: 4px;
+  --radius-lg: 8px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.6);
+}

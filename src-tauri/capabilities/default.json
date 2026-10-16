@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissões da janela principal do Bravo Hub",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "dialog:default",
+    "window-state:default",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://*" }, { "url": "https://*/**" }]
+    },
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "$APPLOCALDATA/**" }, { "path": "$DOWNLOAD/Bravo Hub/**" }, { "path": "$DOWNLOAD/Bravo Hub" }]
+    },
+    "fs:allow-mkdir",
+    "fs:allow-write-file",
+    "fs:allow-read-file",
+    "fs:allow-exists"
+  ]
+}

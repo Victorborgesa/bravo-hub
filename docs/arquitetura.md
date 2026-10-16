@@ -25,3 +25,11 @@ Desde o início, cada geração registra o custo estimado, pra comparar com a as
 ## Escopo da v1
 
 Canvas de nodes com portas tipadas, nodes de texto/assistente, imagem, vídeo, upscale, upload e lista (geração em lote), histórico local e painel de custos. Ficam pra depois a sincronização na nuvem, o node Designer e a colaboração.
+
+## Estado da v0.1
+
+Feito: canvas com os sete nodes, integrações com os seis fabricantes, armazenamento local das mídias, Biblioteca, painel de Custos, cofre de chaves e instalador do Windows pelo GitHub Actions.
+
+Ainda não validado com chaves reais: as chamadas seguem a documentação pública de cada API, mas nenhuma foi testada de ponta a ponta. Os IDs de modelo mudam com frequência; quando um fabricante recusar um ID, atualize `src/providers/catalog.ts`.
+
+Próximos passos: validar cada fabricante com as chaves da Bravo, atualização automática (precisa de uma chave de assinatura do updater), logo oficial em vetor, node Designer, exportação de vídeo com ffmpeg e o servidor da Bravo para login e chaves compartilhadas.

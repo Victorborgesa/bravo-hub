@@ -1,0 +1,215 @@
+// Executa nodes do canvas: junta as entradas conectadas, chama o fabricante,
+// guarda o resultado e registra o custo estimado.
+import type { MediaRef } from "../lib/media";
+import { modelById } from "../providers/catalog";
+import { generateImages, generateText, generateVideo, upscale } from "../providers";
+import type { ModelDef } from "../providers/types";
+import { useCosts } from "../store/costs";
+import { useSpaces, type FlowNode, type Space } from "../store/spaces";
+import { notify } from "../store/toasts";
+import { handleType, NODE_SPECS, type NodeOutputs } from "./ports";
+
+const controllers = new Map<string, AbortController>();
+
+interface Inputs {
+  texts: string[];
+  /** Itens de um node Lista conectado: geram um resultado por item. */
+  batch: string[] | null;
+  images: MediaRef[];
+}
+
+function findSpace(nodeId: string): Space | undefined {
+  return useSpaces.getState().spaces.find((s) => s.nodes.some((n) => n.id === nodeId));
+}
+
+/** Texto e Lista expõem o próprio conteúdo; os demais, o último resultado escolhido. */
+function outputsOf(node: FlowNode): NodeOutputs | undefined {
+  if (node.type === "text") return { texts: [node.data.text ?? ""] };
+  if (node.type === "list") return { texts: node.data.items ?? [] };
+  return node.data.outputs;
+}
+
+function collectInputs(space: Space, node: FlowNode): Inputs {
+  const inputs: Inputs = { texts: [], batch: null, images: [] };
+  for (const edge of space.edges.filter((e) => e.target === node.id)) {
+    const source = space.nodes.find((n) => n.id === edge.source);
+    const out = source && outputsOf(source);
+    if (!source || !out) continue;
+    const type = handleType(edge.targetHandle);
+    if (type === "text") {
+      const texts = (out.texts ?? []).filter((t) => t.trim());
+      if (source.type === "list") inputs.batch = [...(inputs.batch ?? []), ...texts];
+      else inputs.texts.push(...texts);
+    } else if (type === "image") {
+      inputs.images.push(...(out.images ?? []));
+    }
+  }
+  return inputs;
+}
+
+const joinPrompt = (...parts: (string | undefined)[]) =>
+  parts.map((p) => p?.trim()).filter(Boolean).join("\n\n");
+
+const ASSISTANT_MODES: Record<string, string> = {
+  prompt:
+    "Você é diretor de arte de um estúdio de visualização arquitetônica. Transforme a ideia recebida em um único prompt detalhado, em inglês, para um gerador de imagem ou vídeo. Descreva sujeito, enquadramento, lente, luz, materiais e atmosfera. Responda apenas com o prompt.",
+  describe:
+    "Descreva a imagem recebida de forma objetiva e detalhada, como um prompt em inglês capaz de recriá-la. Responda apenas com a descrição.",
+  variations:
+    "Crie 4 variações criativas do prompt recebido, em inglês, uma por linha, sem numeração. Responda apenas com as linhas.",
+  free: "Você é um assistente criativo do estúdio Bravo Visuals. Responda em português, de forma direta.",
+};
+
+function setNode(nodeId: string, patch: Partial<FlowNode["data"]>) {
+  useSpaces.getState().updateNode(nodeId, patch);
+}
+
+function requireModel(id: string | undefined): ModelDef {
+  const model = id ? modelById(id) : undefined;
+  if (!model) throw new Error("Modelo não encontrado no catálogo.");
+  return model;
+}
+
+async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal; onStatus: (s: string) => void }): Promise<NodeOutputs> {
+  const d = node.data;
+  const inputs = collectInputs(space, node);
+  const record = useCosts.getState().record;
+
+  switch (node.type) {
+    case "assistant": {
+      const model = requireModel(d.modelId);
+      const prompt = joinPrompt(...inputs.texts, ...(inputs.batch ?? []), d.prompt);
+      if (!prompt && !inputs.images.length) throw new Error("Conecte um texto ou imagem, ou escreva uma instrução.");
+      const system = ASSISTANT_MODES[d.mode ?? "prompt"] ?? ASSISTANT_MODES.free;
+      const text = await generateText({ model, system, prompt: prompt || "Descreva.", images: inputs.images }, ctx);
+      // Custo de texto é pequeno; estimamos ~2 mil tokens por chamada.
+      record(model, 0.002, true, space);
+      const texts = d.mode === "variations" ? text.split("\n").map((t) => t.trim()).filter(Boolean) : [text];
+      return { texts };
+    }
+
+    case "image": {
+      const model = requireModel(d.modelId);
+      const prompts = (inputs.batch?.length ? inputs.batch : [""]).map((item) => joinPrompt(...inputs.texts, item, d.prompt));
+      if (prompts.some((p) => !p)) throw new Error("Escreva um prompt ou conecte um node de texto.");
+      const results: MediaRef[] = [];
+      for (const [i, prompt] of prompts.entries()) {
+        if (prompts.length > 1) ctx.onStatus(`Item ${i + 1} de ${prompts.length}…`);
+        const count = d.count ?? 1;
+        const imgs = await generateImages(
+          { model, prompt, references: model.acceptsImage ? inputs.images : [], aspect: d.aspect ?? "1:1", count },
+          ctx,
+        );
+        record(model, imgs.length, true, space);
+        results.push(...imgs);
+        setNode(node.id, { gallery: [...imgs, ...(currentGallery(node.id))] });
+      }
+      return { images: results };
+    }
+
+    case "video": {
+      const model = requireModel(d.modelId);
+      const prompts = (inputs.batch?.length ? inputs.batch : [""]).map((item) => joinPrompt(...inputs.texts, item, d.prompt));
+      if (prompts.some((p) => !p) && !inputs.images.length) throw new Error("Escreva um prompt ou conecte texto/imagem.");
+      const frames = inputs.images.length ? inputs.images : [undefined];
+      const results: MediaRef[] = [];
+      const duration = d.duration ?? model.durations?.[0] ?? 5;
+      const total = prompts.length * frames.length;
+      let n = 0;
+      for (const prompt of prompts) {
+        for (const firstFrame of frames) {
+          n++;
+          if (total > 1) ctx.onStatus(`Vídeo ${n} de ${total}…`);
+          const vids = await generateVideo({ model, prompt, firstFrame, aspect: d.aspect ?? "16:9", duration }, ctx);
+          record(model, duration, true, space);
+          results.push(...vids);
+          setNode(node.id, { gallery: [...vids, ...currentGallery(node.id)] });
+        }
+      }
+      return { videos: results };
+    }
+
+    case "upscale": {
+      const model = requireModel("clarity");
+      if (!inputs.images.length) throw new Error("Conecte uma imagem para fazer o upscale.");
+      const results: MediaRef[] = [];
+      for (const [i, image] of inputs.images.entries()) {
+        if (inputs.images.length > 1) ctx.onStatus(`Imagem ${i + 1} de ${inputs.images.length}…`);
+        const out = await upscale({ image, scale: d.scale ?? 2, creativity: d.creativity ?? 0.35, prompt: d.prompt }, ctx);
+        record(model, 1, true, space);
+        results.push(...out);
+        setNode(node.id, { gallery: [...out, ...currentGallery(node.id)] });
+      }
+      return { images: results };
+    }
+
+    default:
+      return node.data.outputs ?? {};
+  }
+}
+
+function currentGallery(nodeId: string): MediaRef[] {
+  const node = findSpace(nodeId)?.nodes.find((n) => n.id === nodeId);
+  return node?.data.gallery ?? [];
+}
+
+export async function runNode(nodeId: string): Promise<boolean> {
+  const space = findSpace(nodeId);
+  const node = space?.nodes.find((n) => n.id === nodeId);
+  if (!space || !node || !NODE_SPECS[node.type!].runnable) return false;
+  if (controllers.has(nodeId)) return false;
+
+  const controller = new AbortController();
+  controllers.set(nodeId, controller);
+  setNode(nodeId, { status: "running", statusText: "Enviando…", error: undefined });
+  try {
+    const outputs = await execute(space, node, {
+      signal: controller.signal,
+      onStatus: (statusText) => setNode(nodeId, { statusText }),
+    });
+    setNode(nodeId, { status: "done", statusText: undefined, outputs });
+    return true;
+  } catch (e) {
+    const aborted = e instanceof DOMException && e.name === "AbortError";
+    const message = aborted ? "Cancelado" : e instanceof Error ? e.message : String(e);
+    setNode(nodeId, { status: aborted ? "idle" : "error", statusText: undefined, error: aborted ? undefined : message });
+    if (!aborted) notify(`${NODE_SPECS[node.type!].title}: ${message}`, "error");
+    return false;
+  } finally {
+    controllers.delete(nodeId);
+  }
+}
+
+export function cancelNode(nodeId: string) {
+  controllers.get(nodeId)?.abort();
+}
+
+export const isRunning = (nodeId: string) => controllers.has(nodeId);
+
+/** Roda todos os nodes executáveis em ordem, respeitando as dependências. */
+export async function runSpace(spaceId: string) {
+  const space = useSpaces.getState().spaces.find((s) => s.id === spaceId);
+  if (!space) return;
+  const indeg = new Map(space.nodes.map((n) => [n.id, 0]));
+  for (const e of space.edges) indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
+  const queue = space.nodes.filter((n) => !indeg.get(n.id)).map((n) => n.id);
+  const order: string[] = [];
+  while (queue.length) {
+    const id = queue.shift()!;
+    order.push(id);
+    for (const e of space.edges.filter((x) => x.source === id)) {
+      indeg.set(e.target, indeg.get(e.target)! - 1);
+      if (indeg.get(e.target) === 0) queue.push(e.target);
+    }
+  }
+  for (const id of order) {
+    const node = space.nodes.find((n) => n.id === id)!;
+    if (!NODE_SPECS[node.type!].runnable) continue;
+    const ok = await runNode(id);
+    if (!ok) {
+      notify("Fluxo interrompido no node com erro.", "error");
+      return;
+    }
+  }
+  notify("Fluxo concluído.", "ok");
+}
