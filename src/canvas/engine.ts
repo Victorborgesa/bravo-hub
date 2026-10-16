@@ -7,6 +7,7 @@ import type { ModelDef } from "../providers/types";
 import { useCosts } from "../store/costs";
 import { useSpaces, type FlowNode, type Space } from "../store/spaces";
 import { notify } from "../store/toasts";
+import { isTauri } from "../lib/platform";
 import { handleType, NODE_SPECS, type NodeOutputs } from "./ports";
 
 const controllers = new Map<string, AbortController>();
@@ -104,7 +105,8 @@ async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal;
         results.push(...imgs);
         setNode(node.id, { gallery: [...imgs, ...(currentGallery(node.id))] });
       }
-      return { images: results };
+      // Em lote (node Lista) segue tudo; senão, só a primeira, como a miniatura escolhida.
+      return { images: inputs.batch?.length ? results : results.slice(0, 1) };
     }
 
     case "video": {
@@ -112,6 +114,7 @@ async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal;
       const prompts = (inputs.batch?.length ? inputs.batch : [""]).map((item) => joinPrompt(...inputs.texts, item, d.prompt));
       if (prompts.some((p) => !p) && !inputs.images.length) throw new Error("Escreva um prompt ou conecte texto/imagem.");
       const frames = inputs.images.length ? inputs.images : [undefined];
+      const fallback = "Movimento de câmera suave e natural, mantendo a composição da imagem";
       const results: MediaRef[] = [];
       const duration = d.duration ?? model.durations?.[0] ?? 5;
       const total = prompts.length * frames.length;
@@ -120,13 +123,13 @@ async function execute(space: Space, node: FlowNode, ctx: { signal: AbortSignal;
         for (const firstFrame of frames) {
           n++;
           if (total > 1) ctx.onStatus(`Vídeo ${n} de ${total}…`);
-          const vids = await generateVideo({ model, prompt, firstFrame, aspect: d.aspect ?? "16:9", duration }, ctx);
+          const vids = await generateVideo({ model, prompt: prompt || fallback, firstFrame, aspect: d.aspect ?? "16:9", duration }, ctx);
           record(model, duration, true, space);
           results.push(...vids);
           setNode(node.id, { gallery: [...vids, ...currentGallery(node.id)] });
         }
       }
-      return { videos: results };
+      return { videos: inputs.batch?.length ? results : results.slice(0, 1) };
     }
 
     case "upscale": {
@@ -153,7 +156,58 @@ function currentGallery(nodeId: string): MediaRef[] {
   return node?.data.gallery ?? [];
 }
 
-export async function runNode(nodeId: string): Promise<boolean> {
+export interface Estimate {
+  jobs: number;
+  usd: number;
+}
+
+/** Quantas chamadas pagas um node vai fazer e quanto deve custar, antes de rodar. */
+export function estimateNode(space: Space, node: FlowNode): Estimate {
+  const d = node.data;
+  const inputs = collectInputs(space, node);
+  const prompts = Math.max(inputs.batch?.length ?? 0, 1);
+  const hasImage = inputs.images.length > 0;
+  switch (node.type) {
+    case "image": {
+      const m = resolveModel(d.modelId, "image", hasImage);
+      const n = prompts * (d.count ?? 1);
+      return { jobs: prompts, usd: n * (m?.price.usd ?? 0) };
+    }
+    case "video": {
+      const m = resolveModel(d.modelId, "video", hasImage);
+      const n = prompts * Math.max(inputs.images.length, 1);
+      return { jobs: n, usd: n * (d.duration ?? m?.durations?.[0] ?? 5) * (m?.price.usd ?? 0) };
+    }
+    case "upscale": {
+      const n = inputs.images.length;
+      return { jobs: n, usd: n * (modelById("clarity")?.price.usd ?? 0) };
+    }
+    case "assistant":
+      return { jobs: 1, usd: 0.005 };
+    default:
+      return { jobs: 0, usd: 0 };
+  }
+}
+
+const CONFIRM_USD = 1;
+
+/** Pede confirmação quando a execução sai cara ou dispara várias gerações. */
+async function confirmCost(est: Estimate, what: string): Promise<boolean> {
+  if (est.jobs <= 1 && est.usd < CONFIRM_USD) return true;
+  const msg = `${what} vai fazer ${est.jobs} geração(ões), custo estimado de US$ ${est.usd.toFixed(2)}. Continuar?`;
+  if (isTauri) {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    return ask(msg, { title: "Confirmar custo", kind: "warning", okLabel: "Gerar", cancelLabel: "Cancelar" });
+  }
+  return window.confirm(msg);
+}
+
+export async function runNode(nodeId: string, confirmed = false): Promise<boolean> {
+  {
+    const space = findSpace(nodeId);
+    const node = space?.nodes.find((n) => n.id === nodeId);
+    if (space && node && !confirmed && !(await confirmCost(estimateNode(space, node), NODE_SPECS[node.type!].title))) return false;
+  }
   const space = findSpace(nodeId);
   const node = space?.nodes.find((n) => n.id === nodeId);
   if (!space || !node || !NODE_SPECS[node.type!].runnable) return false;
@@ -222,13 +276,18 @@ async function runOrdered(spaceId: string, filter?: (space: Space) => Set<string
   const space = useSpaces.getState().spaces.find((s) => s.id === spaceId);
   if (!space) return;
   const only = filter?.(space);
+  const ids = topoOrder(space).filter((id) => (!only || only.has(id)) && NODE_SPECS[space.nodes.find((n) => n.id === id)!.type!].runnable);
+  // Estimativa feita antes de rodar: nodes que dependem de resultados ainda não gerados contam pelo menos uma vez.
+  const total = ids.reduce<Estimate>((acc, id) => {
+    const e = estimateNode(space, space.nodes.find((n) => n.id === id)!);
+    return { jobs: acc.jobs + Math.max(e.jobs, 1), usd: acc.usd + e.usd };
+  }, { jobs: 0, usd: 0 });
+  if (!(await confirmCost(total, "O fluxo"))) return;
   let ran = 0;
-  for (const id of topoOrder(space)) {
-    if (only && !only.has(id)) continue;
-    const node = space.nodes.find((n) => n.id === id)!;
-    if (!NODE_SPECS[node.type!].runnable) continue;
+  for (const id of ids) {
+    if (isRunning(id)) continue;
     ran++;
-    if (!(await runNode(id))) {
+    if (!(await runNode(id, true))) {
       notify("Fluxo interrompido no node com erro.", "error");
       return;
     }

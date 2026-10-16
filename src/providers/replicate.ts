@@ -1,5 +1,5 @@
 // Replicate: Clarity Upscaler.
-import { mediaDataUrl, saveRemote, type MediaRef } from "../lib/media";
+import { mediaBlob, mediaFileName, saveRemote, type MediaRef } from "../lib/media";
 import { poll, requestJson, requireSecret } from "./http";
 import { modelById } from "./catalog";
 import { ProviderError, type JobContext, type UpscaleJob } from "./types";
@@ -13,21 +13,37 @@ interface Prediction {
   error?: string;
 }
 
-let cachedVersion: string | null = null;
+// Hash da versão mais recente por modelo (o ID pode ser trocado em Ajustes).
+const versions = new Map<string, string>();
+
+/**
+ * Envia a imagem pela API de arquivos do Replicate. Imagens grandes (justamente
+ * as que mais precisam de upscale) não cabem como data URL no corpo do pedido.
+ */
+async function uploadImage(image: MediaRef, auth: string, ctx: JobContext): Promise<string> {
+  const form = new FormData();
+  form.append("content", await mediaBlob(image), mediaFileName(image));
+  const res = await requestJson<{ urls?: { get?: string } }>("replicate", `${BASE}/files`, { method: "POST", headers: { Authorization: auth }, body: form }, ctx);
+  if (!res.urls?.get) throw new ProviderError("replicate", "Não consegui enviar a imagem para o Replicate.");
+  return res.urls.get;
+}
 
 export async function clarityUpscale(job: UpscaleJob, ctx: JobContext): Promise<MediaRef[]> {
   const model = modelById("clarity")!;
   const h = { Authorization: `Bearer ${await requireSecret("replicate", "replicate")}`, "Content-Type": "application/json" };
 
   // Modelos da comunidade exigem o hash da versão; buscamos a mais recente.
-  if (!cachedVersion) {
+  let version = versions.get(model.apiModel);
+  if (!version) {
     const info = await requestJson<{ latest_version?: { id: string } }>("replicate", `${BASE}/models/${model.apiModel}`, { headers: h }, ctx);
-    cachedVersion = info.latest_version?.id ?? null;
-    if (!cachedVersion) throw new ProviderError("replicate", "Não encontrei a versão do Clarity Upscaler.");
+    version = info.latest_version?.id;
+    if (!version) throw new ProviderError("replicate", "Não encontrei a versão do Clarity Upscaler.");
+    versions.set(model.apiModel, version);
   }
 
+  ctx.onStatus?.("Enviando imagem…");
   const input: Record<string, unknown> = {
-    image: await mediaDataUrl(job.image),
+    image: await uploadImage(job.image, h.Authorization, ctx),
     scale_factor: job.scale,
     creativity: job.creativity,
     resemblance: 0.6,
@@ -39,7 +55,7 @@ export async function clarityUpscale(job: UpscaleJob, ctx: JobContext): Promise<
   const created = await requestJson<Prediction>(
     "replicate",
     `${BASE}/predictions`,
-    { method: "POST", headers: h, body: JSON.stringify({ version: cachedVersion, input }) },
+    { method: "POST", headers: h, body: JSON.stringify({ version, input }) },
     ctx,
   );
   const done = await poll(async () => {

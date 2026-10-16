@@ -8,7 +8,7 @@ import { isTauri, secretDelete, secretGet, secretSet } from "../lib/platform";
 import { notify } from "../store/toasts";
 import { PageHead } from "./PageHead";
 
-function SecretField({ secretKey, label }: { secretKey: string; label: string }) {
+function SecretField({ secretKey, label, onChange }: { secretKey: string; label: string; onChange: () => void }) {
   const [saved, setSaved] = useState(false);
   const [value, setValue] = useState("");
 
@@ -22,6 +22,7 @@ function SecretField({ secretKey, label }: { secretKey: string; label: string })
       await secretSet(secretKey, value.trim());
       setValue("");
       setSaved(true);
+      onChange();
       notify(`${label} salva no cofre.`, "ok");
     } catch (e) {
       notify(`Não consegui salvar: ${e instanceof Error ? e.message : e}`, "error");
@@ -31,6 +32,7 @@ function SecretField({ secretKey, label }: { secretKey: string; label: string })
   async function remove() {
     await secretDelete(secretKey);
     setSaved(false);
+    onChange();
   }
 
   return (
@@ -56,9 +58,10 @@ function SecretField({ secretKey, label }: { secretKey: string; label: string })
 function ProviderCard({ id, index }: { id: ProviderId; index: number }) {
   const p = PROVIDERS[id];
   const [ready, setReady] = useState(false);
+  const [version, setVersion] = useState(0);
   useEffect(() => {
     Promise.all(p.secrets.map((s) => secretGet(s.key))).then((vals) => setReady(vals.every(Boolean)));
-  });
+  }, [p, version]);
   return (
     <motion.section className="provider" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 * index }}>
       <header className="provider-head">
@@ -69,13 +72,28 @@ function ProviderCard({ id, index }: { id: ProviderId; index: number }) {
         </a>
       </header>
       {p.secrets.map((s) => (
-        <SecretField key={s.key} secretKey={s.key} label={s.label} />
+        <SecretField key={s.key} secretKey={s.key} label={s.label} onChange={() => setVersion((v) => v + 1)} />
       ))}
     </motion.section>
   );
 }
 
 const CAP_LABEL = { image: "Imagem", video: "Vídeo", upscale: "Upscale", text: "Texto" } as const;
+
+/** Edita livremente e só salva ao sair do campo ou apertar Enter (vazio volta ao padrão). */
+function ModelIdInput({ initial, custom, onCommit }: { initial: string; custom: boolean; onCommit: (v: string) => void }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <input
+      className={`field mono ${custom ? "is-custom" : ""}`}
+      value={value}
+      spellCheck={false}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onCommit(value.trim())}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+    />
+  );
+}
 
 /** Permite corrigir o ID de API de um modelo quando o fabricante renomeia ou aposenta uma versão. */
 function ModelIds() {
@@ -93,10 +111,11 @@ function ModelIds() {
               <td>{m.label}</td>
               <td className="muted">{PROVIDERS[m.provider].name.split(" ")[0]} · {CAP_LABEL[m.capability]}</td>
               <td className="id-cell">
-                <input
-                  className={`field mono ${apiIds[m.id] ? "is-custom" : ""}`}
-                  value={apiIds[m.id] ?? m.apiModel}
-                  onChange={(e) => (e.target.value.trim() && e.target.value !== m.apiModel ? setApiId(m.id, e.target.value.trim()) : reset(m.id))}
+                <ModelIdInput
+                  key={apiIds[m.id] ?? m.apiModel}
+                  initial={apiIds[m.id] ?? m.apiModel}
+                  custom={!!apiIds[m.id]}
+                  onCommit={(v) => (v && v !== m.apiModel ? setApiId(m.id, v) : reset(m.id))}
                 />
               </td>
               <td className="num">{apiIds[m.id] && <button className="link" onClick={() => reset(m.id)}>Restaurar</button>}</td>

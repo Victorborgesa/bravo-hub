@@ -148,8 +148,9 @@ function Canvas() {
   };
 
   async function placeImages(files: File[], at: { x: number; y: number }) {
+    // Uma imagem por node, lado a lado, para cada uma poder ir para um lugar diferente do fluxo.
     const media = await importFiles(files);
-    if (media.length) addNode("upload", at, { gallery: media, outputs: { images: [media[0]] } });
+    media.forEach((m, i) => addNode("upload", { x: at.x + (i % 4) * 330, y: at.y + Math.floor(i / 4) * 360 }, { gallery: [m], outputs: { images: [m] } }));
   }
 
   const onDrop = (e: DragEvent) => {
