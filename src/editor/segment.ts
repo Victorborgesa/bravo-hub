@@ -61,7 +61,14 @@ export function redShift(a: CanvasImageSource, b: CanvasImageSource, w: number, 
     const lo = Math.min(db[i], db[i + 1], db[i + 2]), hi = Math.max(db[i], db[i + 1], db[i + 2]);
     const la = (da[i] + da[i + 1] + da[i + 2]) / 3;
     const whiteLine = lo > 215 && hi - lo < 28 && lo - la > 60;
-    p.v[j] = whiteLine ? 1 : marking ? Math.max(0, (rb - ra) / 255) : 0;
+    // Área que ficou mais clara e mais "lavada" (menos cor) que o original: é a
+    // IA clareando a região marcada. Pele, reflexo colorido e sombra não caem aqui.
+    const lumA = (0.2126 * da[i] + 0.7152 * da[i + 1] + 0.0722 * da[i + 2]) / 255;
+    const lumB = (0.2126 * db[i] + 0.7152 * db[i + 1] + 0.0722 * db[i + 2]) / 255;
+    const satA = (Math.max(da[i], da[i + 1], da[i + 2]) - Math.min(da[i], da[i + 1], da[i + 2])) / Math.max(1, Math.max(da[i], da[i + 1], da[i + 2]));
+    const satB = (hi - lo) / Math.max(1, hi);
+    const washed = lumB - lumA > 0.07 && satB < satA * 0.7 + 0.03;
+    p.v[j] = whiteLine || washed ? 1 : marking ? Math.max(0, (rb - ra) / 255) : 0;
   }
   return p;
 }
@@ -264,6 +271,20 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
   }
   const union = plane(w, h);
   const boxes = chosen.map((c) => c.box);
+  // Largura da parte de baixo de cada um (pernas, pés): a zona de contato
+  // fica embaixo disso, e não dos lados, onde só sobra borda e piso.
+  const lower = chosen.map(({ p, box: [x0, y0, x1, y1] }) => {
+    const from = Math.round(y1 - (y1 - y0) * 0.3);
+    let a = x1, b = x0;
+    for (let y = Math.max(0, from); y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (p.v[y * w + x] < 0.5) continue;
+        if (x < a) a = x;
+        if (x > b) b = x;
+      }
+    }
+    return b >= a ? [a, b] : [x0, x1];
+  });
   for (const c of chosen) for (let i = 0; i < n; i++) union.v[i] = Math.max(union.v[i], c.p.v[i]);
 
   // Objetos nas mãos: entram se são novos e estão encostados em quem foi colado.
@@ -302,9 +323,10 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
     const avgH = boxes.reduce((s, b) => s + (b[3] - b[1]), 0) / boxes.length;
     const local = blur(diff, Math.max(2, Math.round(avgH * 0.12)));
     const contact = plane(w, h);
-    for (const [x0, y0, x1, y1] of boxes) {
+    for (const [k, [x0, y0, x1, y1]] of boxes.entries()) {
       const bw = x1 - x0, bh = y1 - y0;
-      const cx0 = Math.max(0, Math.round(x0 - bw * 0.25)), cx1 = Math.min(w - 1, Math.round(x1 + bw * 0.25));
+      const [lx0, lx1] = lower[k];
+      const cx0 = Math.max(0, Math.round(lx0 - bw * 0.08)), cx1 = Math.min(w - 1, Math.round(lx1 + bw * 0.08));
       const cy0 = Math.max(0, Math.round(y0 + bh * 0.4)), cy1 = Math.min(h - 1, Math.round(y1 + bh * 0.45));
       for (let y = cy0; y <= cy1; y++) {
         // Some suavemente para baixo, para não virar um retângulo.
