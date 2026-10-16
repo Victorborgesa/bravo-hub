@@ -36,7 +36,7 @@ FOR MATERIAL OR ARCHITECTURE CHANGES: name the material, its finish, joint patte
 
 Follow the user's request exactly; it is written in Portuguese. Enrich only the gaps with coherent choices and never contradict or change the meaning of the request. No text, logos or watermarks unless asked.
 
-OUTPUT: only the instruction text in English, no preamble, no quotes, no markdown, no headings, no lists.`;
+OUTPUT: only the instruction text in English, no preamble, no quotes, no markdown, no headings, no lists. Then, on one final separate line, write PROPS: followed by the short English names of every object the added subjects hold, carry, push or lead (for example "PROPS: wine bottle, wine glass"), or "PROPS: none".`;
 
 const FORMAT: Record<string, string> = {
   "Nano Banana (Google)":
@@ -61,7 +61,23 @@ export interface DirectorInput {
   scene: Blob;
 }
 
-export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<{ text: string; model: ModelDef } | null> {
+/** Separa a linha PROPS (objetos nas mãos) do resto do pedido. */
+export function splitProps(text: string): { text: string; props: string[] } {
+  let props: string[] = [];
+  const clean = text
+    .split("\n")
+    .filter((line) => {
+      const m = line.trim().match(/^PROPS:\s*(.*)$/i);
+      if (!m) return true;
+      props = m[1].toLowerCase() === "none" ? [] : m[1].split(",").map((p) => p.trim().replace(/\.$/, "")).filter(Boolean);
+      return false;
+    })
+    .join("\n")
+    .trim();
+  return { text: clean, props: props.slice(0, 3) };
+}
+
+export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<{ text: string; props: string[]; model: ModelDef } | null> {
   const task = ACTIONS[i.category]?.find((a) => a[0] === i.action);
   const ask = [
     FORMAT[i.engine.family] ?? FORMAT["Nano Banana (Google)"],
@@ -83,7 +99,8 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<{
         const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene] }, ctx)).trim();
         if (text.length < 40) continue;
         useCosts.getState().record(model, 0.003, true);
-        return { text: text.replace(/^["'`]+|["'`]+$/g, ""), model };
+        const split = splitProps(text.replace(/^["'`]+|["'`]+$/g, ""));
+        return { ...split, model };
       } catch (e) {
         if (ctx.signal?.aborted) throw e;
       }

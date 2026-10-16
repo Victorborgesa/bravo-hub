@@ -128,3 +128,14 @@
 .result-info { width: min(720px, 100%); max-height: 220px; overflow: auto; padding: 14px 16px; border-radius: 14px; background: var(--glass); backdrop-filter: var(--glass-blur); border: 1px solid rgba(255, 255, 255, 0.08); }
 .result-info pre { margin: 8px 0 0; white-space: pre-wrap; font-family: "JetBrains Mono", monospace; font-size: 11.5px; line-height: 1.6; color: var(--text-soft); }
 .result-note { margin: 0; font-size: 12.5px; color: var(--accent, #e0866a); }
+
+/* Zoom da cena */
+.editor-stage { overflow: hidden; }
+.editor-frame { transform-origin: center; will-change: transform; }
+.editor-stage.is-panning .editor-mask { cursor: grab; }
+.editor-stage.is-panning .editor-mask:active { cursor: grabbing; }
+.editor-results, .result-info { position: relative; z-index: 2; }
+.ed-zoom { display: flex; align-items: center; gap: 2px; }
+.ed-zoom-pct { min-width: 50px; height: 30px; border-radius: 8px; font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: var(--text-soft); transition: color 160ms, background 160ms; }
+.ed-zoom-pct:hover { color: var(--paper); background: rgba(255, 255, 255, 0.06); }
+.tool-btn:disabled { opacity: 0.35; pointer-events: none; }

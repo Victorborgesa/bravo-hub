@@ -94,9 +94,23 @@ export async function replicateRun(
   const h = { Authorization: `Bearer ${await requireSecret("replicate", "replicate")}`, "Content-Type": "application/json" };
   const url = target.model ? `${BASE}/models/${target.model}/predictions` : `${BASE}/predictions`;
   const body = target.model ? { input } : { version: target.version, input };
-  const created = await requestJson<Prediction>("replicate", url, { method: "POST", headers: h, body: JSON.stringify(body) }, ctx);
+  // Contas com pouco saldo têm limite de criações por minuto: espera e tenta de novo.
+  let created: Prediction | null = null;
+  for (let attempt = 0; !created; attempt++) {
+    try {
+      created = await requestJson<Prediction>("replicate", url, { method: "POST", headers: h, body: JSON.stringify(body) }, ctx);
+    } catch (e) {
+      if (attempt >= 5 || !(e instanceof ProviderError) || !e.message.includes("429")) throw e;
+      ctx.onStatus?.("Replicate pediu um tempinho, tentando de novo…");
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, 2000 * 2 ** attempt);
+        ctx.signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Cancelado", "AbortError")); }, { once: true });
+      });
+    }
+  }
+  const id = created.id;
   const done = await poll(async () => {
-    const p = await requestJson<Prediction>("replicate", `${BASE}/predictions/${created.id}`, { headers: h }, ctx);
+    const p = await requestJson<Prediction>("replicate", `${BASE}/predictions/${id}`, { headers: h }, ctx);
     if (p.status === "failed" || p.status === "canceled") throw new ProviderError("replicate", p.error ?? "Falha na geração");
     return p.status === "succeeded" ? p : null;
   }, ctx, { interval: 2500 });

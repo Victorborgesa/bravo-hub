@@ -192,6 +192,19 @@ const PT_EN: Record<string, string> = {
   varanda: "balcony", pergolado: "pergola", "guarda-sol": "umbrella", placa: "sign", poste: "pole", lixeira: "trash can",
   pedra: "rock", nuvem: "cloud", nuvens: "clouds", fonte: "fountain", escultura: "sculpture", "estátua": "statue", estatua: "statue",
 };
+/** Objetos que costumam ir na mão de quem é adicionado. */
+const PROPS_PT: Record<string, string> = {
+  vinho: "wine bottle", garrafa: "bottle", "taça": "wine glass", taca: "wine glass", copo: "glass", "café": "coffee cup", cafe: "coffee cup",
+  xícara: "cup", xicara: "cup", bolsa: "bag", sacola: "shopping bag", mochila: "backpack", celular: "phone", livro: "book", jornal: "newspaper",
+  "guarda-chuva": "umbrella", mala: "suitcase", carrinho: "stroller", bicicleta: "bicycle", cachorro: "dog", coleira: "leash", prancha: "surfboard",
+  notebook: "laptop", tablet: "tablet", "buquê": "bouquet", flores: "flowers", "raquete": "racket", bola: "ball", bandeja: "tray",
+};
+
+export function propsFromText(text: string): string[] {
+  const words = text.toLowerCase().split(/[^\p{L}-]+/u);
+  return [...new Set(words.map((w) => PROPS_PT[w]).filter(Boolean))].slice(0, 3);
+}
+
 const STOP = new Set(["um", "uma", "uns", "umas", "o", "a", "os", "as", "de", "do", "da", "dos", "das", "e", "com"]);
 
 export function translateObject(text: string): string {

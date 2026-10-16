@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { Brush, Check, Copy, Download, Eraser, Eye, EyeOff, FileText, ImagePlus, Lasso, RotateCcw, ScanEye, Square, Undo2, X, Loader2, FlipHorizontal2 } from "lucide-react";
+import { Brush, Check, Copy, Download, Eraser, Hand, Minus, Plus, Eye, EyeOff, FileText, ImagePlus, Lasso, RotateCcw, ScanEye, Square, Undo2, X, Loader2, FlipHorizontal2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { useEditor } from "./store";
 import { ACTIONS, ENGINES, FAMILIES, engineById, type EditEngine } from "./engines";
@@ -14,7 +14,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { MediaRef } from "../lib/media";
 
-type Tool = "brush" | "erase" | "lasso" | "rect";
+type Tool = "brush" | "erase" | "lasso" | "rect" | "hand";
 
 /** Ajustes lembrados entre aberturas, como a janela do Modify. */
 interface EditorPrefs {
@@ -85,6 +85,40 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   const [showPrompt, setShowPrompt] = useState(false);
   const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
+  // Zoom e deslocamento da cena (roda do mouse, barra de cima, espaço + arrastar).
+  const [view, setView] = useState({ z: 1, x: 0, y: 0 });
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const pan = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+
+  const zoomAt = useCallback((next: number, cx?: number, cy?: number) => {
+    setView((v) => {
+      const z = Math.min(8, Math.max(1, next));
+      if (z === 1) return { z: 1, x: 0, y: 0 };
+      const r = frameRef.current?.getBoundingClientRect();
+      if (!r) return { ...v, z };
+      // Mantém parado o ponto sob o cursor (ou o centro, pelos botões).
+      const c0x = r.left + r.width / 2 - v.x, c0y = r.top + r.height / 2 - v.y;
+      const px = cx ?? c0x + v.x, py = cy ?? c0y + v.y;
+      const ux = (px - c0x - v.x) / v.z, uy = (py - c0y - v.y) / v.z;
+      return { z, x: px - c0x - z * ux, y: py - c0y - z * uy };
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      zoomAt(viewRef.current.z * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt, size]);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
   const maskRef = useRef<HTMLCanvasElement>(null);
   const history = useRef<ImageData[]>([]);
   const drawing = useRef<{ last: { x: number; y: number } | null }>({ last: null });
@@ -129,7 +163,12 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   };
 
   const onDown = (e: RPointerEvent<HTMLCanvasElement>) => {
-    if (!size || running) return;
+    if (spaceHeld || tool === "hand" || e.button === 1) {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      pan.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+      return;
+    }
+    if (!size || running || e.button !== 0) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setPicked(null);
     setShowMask(true);
@@ -143,6 +182,11 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   };
 
   const onMove = (e: RPointerEvent<HTMLCanvasElement>) => {
+    if (pan.current) {
+      const p = pan.current;
+      setView((v) => ({ ...v, x: p.vx + e.clientX - p.x, y: p.vy + e.clientY - p.y }));
+      return;
+    }
     if (!size || !(e.buttons & 1)) return;
     const p = toImage(e);
     if ((tool === "brush" || tool === "erase") && drawing.current.last) {
@@ -153,6 +197,10 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   };
 
   const onUp = (e: RPointerEvent<HTMLCanvasElement>) => {
+    if (pan.current) {
+      pan.current = null;
+      return;
+    }
     drawing.current.last = null;
     const g = ctx();
     // Alt subtrai, como no Photoshop.
@@ -197,7 +245,12 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
       const typing = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName);
       if (e.key === "Escape" && !running) onClose();
       if (typing) return;
+      if (e.code === "Space") { e.preventDefault(); if (!e.repeat) setSpaceHeld(true); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+      else if (e.key === "+" || e.key === "=") zoomAt(view.z * 1.25);
+      else if (e.key === "-") zoomAt(view.z / 1.25);
+      else if (e.key === "0") zoomAt(1);
+      else if (e.key === "h") setTool("hand");
       else if (e.key === "b") setTool("brush");
       else if (e.key === "e") setTool("erase");
       else if (e.key === "l") setTool("lasso");
@@ -212,9 +265,12 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
       e.stopPropagation();
       addReferences(files);
     };
+    const onKeyUp = (e: KeyboardEvent) => e.code === "Space" && setSpaceHeld(false);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
     window.addEventListener("paste", onPaste, true);
     return () => {
+      window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("paste", onPaste, true);
     };
@@ -327,7 +383,7 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
       <header className="editor-bar">
         <span className="editor-title">Editor</span>
         <div className="editor-tools">
-          {([["brush", Brush, "Pincel (B)"], ["erase", Eraser, "Borracha (E)"], ["lasso", Lasso, "Laço (L) · Alt subtrai"], ["rect", Square, "Retângulo (M) · Alt subtrai"]] as const).map(([id, Icon, title]) => (
+          {([["brush", Brush, "Pincel (B)"], ["erase", Eraser, "Borracha (E)"], ["lasso", Lasso, "Laço (L) · Alt subtrai"], ["rect", Square, "Retângulo (M) · Alt subtrai"], ["hand", Hand, "Mover a cena (H, ou segure Espaço)"]] as const).map(([id, Icon, title]) => (
             <button key={id} className={`tool-btn ${tool === id ? "is-active" : ""}`} title={title} onClick={() => setTool(id)}><Icon size={16} /></button>
           ))}
           <span className="tool-sep v" />
@@ -341,14 +397,29 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
           <button className="tool-btn" title="Inverter seleção" onClick={invertMask}><FlipHorizontal2 size={16} /></button>
           <button className="tool-btn" title="Limpar seleção" onClick={clearMask}><RotateCcw size={16} /></button>
           <button className={`tool-btn ${showMask ? "is-active" : ""}`} title="Mostrar seleção" onClick={() => setShowMask((s) => !s)}>{showMask ? <Eye size={16} /> : <EyeOff size={16} />}</button>
+          <span className="tool-sep v" />
+          <div className="ed-zoom">
+            <button className="tool-btn" title="Afastar (-)" onClick={() => zoomAt(view.z / 1.25)} disabled={view.z <= 1}><Minus size={15} /></button>
+            <button className="ed-zoom-pct" title="Ajustar à tela (0)" onClick={() => zoomAt(1)}>{Math.round(view.z * 100)}%</button>
+            <button className="tool-btn" title="Aproximar (+) · ou role o mouse" onClick={() => zoomAt(view.z * 1.25)} disabled={view.z >= 8}><Plus size={15} /></button>
+          </div>
         </div>
         <button className="icon-btn" onClick={onClose} title="Fechar (Esc)"><X size={18} /></button>
       </header>
 
       <div className="editor-body">
-        <section className="editor-stage">
+        <section className={`editor-stage ${spaceHeld || tool === "hand" ? "is-panning" : ""}`} ref={stageRef}>
           {size && (
-            <div className="editor-frame" style={{ aspectRatio: `${size.w} / ${size.h}`, width: `min(100%, calc((100vh - 210px) * ${size.w / size.h}))` }}>
+            <div
+              ref={frameRef}
+              className="editor-frame"
+              style={{
+                aspectRatio: `${size.w} / ${size.h}`,
+                width: `min(100%, calc((100vh - 210px) * ${size.w / size.h}))`,
+                transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`,
+                transition: pan.current ? "none" : "transform 120ms cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            >
               <img src={media.url} alt="" draggable={false} />
               {pickedResult && (
                 <div className="editor-after" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}>

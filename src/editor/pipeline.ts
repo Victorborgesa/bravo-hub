@@ -6,8 +6,8 @@ import { mediaBlob, saveBytes, type MediaRef } from "../lib/media";
 import { replicateRun, replicateUpload } from "../providers/replicate";
 import { ProviderError, type JobContext, type ModelDef } from "../providers/types";
 import { useCosts } from "../store/costs";
-import { composePrompt, engineCost, integrationOf, nearestAspect, SAM3_COST, tierForSize, wrapDirected, type EditEngine } from "./engines";
-import { directPrompt } from "./director";
+import { composePrompt, engineCost, integrationOf, nearestAspect, propsFromText, SAM3_COST, tierForSize, wrapDirected, type EditEngine } from "./engines";
+import { directPrompt, splitProps } from "./director";
 import { alphaPlane, buildObjectMask, findObjects, planeToCanvas } from "./segment";
 
 export interface Rect {
@@ -296,8 +296,18 @@ async function directorView(o: EditOptions, p: Prepared) {
   return toBlob(c, "image/jpeg", 0.88);
 }
 
-async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promise<{ prompt: string; directed: boolean }> {
-  if (o.promptOverride?.trim()) return { prompt: o.promptOverride.trim(), directed: false };
+interface BuiltPrompt {
+  prompt: string;
+  directed: boolean;
+  /** Objetos que a pessoa adicionada segura: entram no recorte junto com ela. */
+  props: string[];
+}
+
+async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promise<BuiltPrompt> {
+  if (o.promptOverride?.trim()) {
+    const { text, props } = splitProps(o.promptOverride);
+    return { prompt: text, directed: false, props: props.length ? props : propsFromText(o.instruction) };
+  }
   const refs = o.engine.references ? o.references.length : 0;
   if (o.director) {
     ctx.onStatus?.("Diretor lendo a cena…");
@@ -305,23 +315,25 @@ async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promis
       { engine: o.engine, category: o.category, action: o.action, instruction: o.instruction, references: refs, scene: await directorView(o, p) },
       ctx,
     );
-    if (directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint"), directed: true };
+    if (directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint"), directed: true, props: directed.props };
   }
   const prompt = composePrompt(o.category, o.action, o.instruction, refs);
   if (!prompt) throw new Error("Escolha um pronto ou escreva o que você quer.");
-  return { prompt, directed: false };
+  return { prompt, directed: false, props: propsFromText(o.instruction) };
 }
 
 /** Mostra o pedido que vai para a IA, para revisar antes de gastar a geração. */
 export async function previewPrompt(o: EditOptions, ctx: JobContext): Promise<{ prompt: string; directed: boolean }> {
-  return buildPrompt(o, await prepare(o), ctx);
+  const b = await buildPrompt(o, await prepare(o), ctx);
+  // A linha PROPS fica visível na revisão; ela não vai para o gerador.
+  return { prompt: `${b.prompt}\n\nPROPS: ${b.props.length ? b.props.join(", ") : "none"}`, directed: b.directed };
 }
 
 export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r: EditResult) => void }): Promise<EditResult[]> {
   ctx.onStatus?.("Preparando a área…");
   const prep = await prepare(o);
   const { original, rect, aspect, out, tier } = prep;
-  const { prompt } = await buildPrompt(o, prep, ctx);
+  const { prompt, props } = await buildPrompt(o, prep, ctx);
 
   ctx.onStatus?.("Enviando a cena…");
   const sceneUrl = await replicateUpload(await cropBlob(original, rect, out, o.engine.kind === "inpaint" ? "image/png" : "image/jpeg"), "cena.jpg", ctx);
@@ -365,16 +377,17 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   const selAlpha = selectionAlpha(o.mask, rect, feather);
   const wantsObject = o.placement === "object" && o.objectName.trim().length > 0;
   const adding = integrationOf(o.category, o.action) === "inserir";
-  // O que já existia na cena é procurado uma vez só, para não colar de novo.
-  let existing: Promise<ImageBitmap[]> | null = null;
-  if (wantsObject && adding) {
-    existing = findObjects(sceneUrl, o.objectName, ctx)
-      .then((r) => {
-        if (r.calls) record(segModel, r.calls, true);
-        return r.masks;
-      })
-      .catch(() => []);
-  }
+  // O que já existia na cena é procurado uma vez só (depois da primeira
+  // geração, uma chamada por vez, para não esbarrar no limite do Replicate).
+  let existing: ImageBitmap[] | null | undefined;
+  const segmentOnce = async (url: string, what: string) => {
+    const r = await findObjects(url, what, ctx).catch((e) => {
+      if (ctx.signal?.aborted) throw e;
+      return { masks: [] as ImageBitmap[], calls: 0 };
+    });
+    if (r.calls) record(segModel, r.calls, true);
+    return r.masks;
+  };
 
   for (let call = 0; call < calls; call++) {
     ctx.onStatus?.(calls > 1 ? `Gerando variação ${call + 1} de ${calls}…` : "Gerando…");
@@ -391,8 +404,12 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
 
       if (wantsObject) {
         ctx.onStatus?.("Recortando o contorno…");
-        const found = await findObjects(url, o.objectName, ctx).catch(() => ({ masks: [] as ImageBitmap[], calls: 0 }));
-        if (found.calls) record(segModel, found.calls, true);
+        const found = { masks: await segmentOnce(url, o.objectName) };
+        if (existing === undefined) existing = adding && found.masks.length ? await segmentOnce(sceneUrl, o.objectName) : null;
+        const attached: ImageBitmap[] = [];
+        if (found.masks.length && o.objectName.trim() !== props.join(", ")) {
+          for (const prop of props) attached.push(...(await segmentOnce(url, prop)));
+        }
         // Tamanho de trabalho: o do resultado, limitado para não pesar.
         const k = Math.min(1, 2048 / Math.max(result.width, result.height));
         const W = Math.round(result.width * k), H = Math.round(result.height * k);
@@ -403,7 +420,8 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
               w: W,
               h: H,
               found: found.masks,
-              existing: existing ? await existing : null,
+              existing,
+              attached,
               original: before,
               result,
               area: o.keepInside ? alphaPlane(grownSelection(o.mask, rect), W, H) : null,

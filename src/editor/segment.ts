@@ -170,6 +170,8 @@ export interface ObjectMaskInput {
   h: number;
   /** Máscaras do resultado, uma por objeto. */
   found: ImageBitmap[];
+  /** O que a pessoa segura (garrafa, taça, bolsa…), para colar junto. */
+  attached?: ImageBitmap[];
   /** O que já existia no original (só quando estamos adicionando). */
   existing: ImageBitmap[] | null;
   original: CanvasImageSource;
@@ -239,6 +241,27 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
   const union = plane(w, h);
   const boxes = chosen.map((c) => c.box);
   for (const c of chosen) for (let i = 0; i < n; i++) union.v[i] = Math.max(union.v[i], c.p.v[i]);
+
+  // Objetos nas mãos: entram se são novos e estão encostados em quem foi colado.
+  const near = boxes.map(([x0, y0, x1, y1]) => {
+    const px = (x1 - x0) * 0.35, py = (y1 - y0) * 0.12;
+    return [x0 - px, y0 - py, x1 + px, y1 + py];
+  });
+  for (const m of o.attached ?? []) {
+    const p = maskPlane(m, w, h);
+    let area = 0, inNear = 0, changed = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (p.v[i] < 0.5) continue;
+        area++;
+        changed += diff.v[i];
+        if (near.some(([a, b, c, d]) => x >= a && x <= c && y >= b && y <= d)) inNear++;
+      }
+    }
+    if (!area || inNear / area < 0.6 || changed / area < 0.08) continue;
+    for (let i = 0; i < n; i++) union.v[i] = Math.max(union.v[i], p.v[i]);
+  }
 
   const guide = luma(o.result, w, h);
   const r = Math.max(2, Math.round(Math.min(w, h) * 0.004));
