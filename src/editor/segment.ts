@@ -296,6 +296,11 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
   // Mudança que puxou forte para o vermelho é marcação copiada, não cena.
   const red = redShift(o.original, o.result, w, h);
   {
+    // Só mudança "com forma" (perna, reflexo, respingo): uma faixa que apenas
+    // clareou ou escureceu por igual não conta. Isso evita colar um retângulo
+    // de piso ou de água que a IA redesenhou num tom um pouco diferente.
+    const avgH = boxes.reduce((s, b) => s + (b[3] - b[1]), 0) / boxes.length;
+    const local = blur(diff, Math.max(2, Math.round(avgH * 0.12)));
     const contact = plane(w, h);
     for (const [x0, y0, x1, y1] of boxes) {
       const bw = x1 - x0, bh = y1 - y0;
@@ -307,9 +312,9 @@ export function buildObjectMask(o: ObjectMaskInput): ObjectMask | null {
         const fall = y <= solid ? 1 : 1 - (y - solid) / Math.max(1, cy1 - solid);
         for (let x = cx0; x <= cx1; x++) {
           const i = y * w + x;
-          const d = diff.v[i];
+          const d = diff.v[i] - local.v[i] * 0.85;
           if (d < 0.12 || red.v[i] > 0.12) continue;
-          contact.v[i] = Math.max(contact.v[i], Math.min(1, (d - 0.12) / 0.35) * fall);
+          contact.v[i] = Math.max(contact.v[i], Math.min(1, (d - 0.12) / 0.2) * fall);
         }
       }
     }

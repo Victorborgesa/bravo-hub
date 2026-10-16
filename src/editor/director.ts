@@ -108,7 +108,7 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<D
     .join("\n\n");
 
   const scene: MediaRef = { id: "director-scene", kind: "image", url: URL.createObjectURL(i.scene), mime: "image/jpeg", createdAt: Date.now() };
-  let error = "nenhum modelo de texto disponível";
+  const errors: string[] = [];
   try {
     for (const a of ATTEMPTS) {
       const base = modelById(a.id);
@@ -122,7 +122,7 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<D
       try {
         const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene], fast: true }, { ...ctx, signal: ctrl.signal })).trim();
         if (text.length < 40) {
-          error = `${model.label} respondeu vazio`;
+          errors.push(`${model.label} respondeu vazio`);
           continue;
         }
         useCosts.getState().record(model, 0.003, true);
@@ -130,13 +130,14 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<D
         return { ...split, model };
       } catch (e) {
         if (ctx.signal?.aborted) throw e;
-        error = ctrl.signal.aborted ? `${model.label} passou de ${ATTEMPT_MS / 1000}s` : `${model.label}: ${e instanceof Error ? e.message : e}`;
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(ctrl.signal.aborted ? `${model.label} passou de ${ATTEMPT_MS / 1000}s` : `${model.label}: ${msg.length > 140 ? `${msg.slice(0, 140)}…` : msg}`);
       } finally {
         clearTimeout(timer);
         ctx.signal?.removeEventListener("abort", relay);
       }
     }
-    return { error };
+    return { error: errors.join(" · ") || "nenhum modelo de texto disponível" };
   } finally {
     URL.revokeObjectURL(scene.url);
   }

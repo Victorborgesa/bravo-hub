@@ -283,7 +283,27 @@ async function prepare(o: EditOptions): Promise<Prepared> {
 }
 
 /** O gerador usa um guia de posição? Só quem aceita várias imagens. */
-const usesGuide = (o: EditOptions) => o.engine.kind !== "inpaint" && o.engine.imagesField !== "input_image";
+// Desligado: mandar a área como imagem (tingida ou em preto e branco) fez os
+// geradores copiarem a marcação para a cena (mancha, traço, retângulo claro).
+// A posição agora vai por texto (placementText) e o recorte cuida do resto.
+const usesGuide = (_o: EditOptions) => false;
+
+/** Onde fica a área marcada dentro da imagem enviada, em palavras. */
+function placementText(o: EditOptions, p: Prepared): string {
+  const sel = maskBounds(o.mask);
+  if (!sel) return "";
+  const fx0 = (sel.x - p.rect.x) / p.rect.w, fx1 = (sel.x + sel.w - p.rect.x) / p.rect.w;
+  const fy0 = (sel.y - p.rect.y) / p.rect.h, fy1 = (sel.y + sel.h - p.rect.y) / p.rect.h;
+  const cx = (fx0 + fx1) / 2, cy = (fy0 + fy1) / 2;
+  const hz = cx < 0.38 ? "left" : cx > 0.62 ? "right" : "center";
+  const vt = cy < 0.38 ? "upper" : cy > 0.62 ? "lower" : "middle";
+  const where = hz === "center" && vt === "middle" ? "the center of the image" : `the ${vt} ${hz} part of the image`;
+  const pct = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 100);
+  return `PLACEMENT: Everything you add goes in ${where}, inside the box from ${pct(fx0)}% to ${pct(fx1)}% of the width (from the left) and ${pct(fy0)}% to ${pct(fy1)}% of the height (from the top). Size and arrange it so all of it, whole bodies included, fits in that box.`;
+}
+
+const withPlacement = (prompt: string, place: string) =>
+  !place ? prompt : prompt.includes("KEEP:") ? prompt.replace("KEEP:", `${place}\n\nKEEP:`) : `${prompt}\n\n${place}`;
 
 /**
  * Guia de posição para o gerador: máscara em preto e branco do tamanho da
@@ -333,12 +353,12 @@ async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promis
       { engine: o.engine, category: o.category, action: o.action, instruction: o.instruction, references: refs, guide: usesGuide(o), scene: await directorView(o, p) },
       ctx,
     );
-    if ("text" in directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint", usesGuide(o)), directed: true, props: directed.props };
+    if ("text" in directed) return { prompt: withPlacement(wrapDirected(directed.text, refs, o.engine.kind === "inpaint", usesGuide(o)), o.engine.kind === "inpaint" ? "" : placementText(o, p)), directed: true, props: directed.props };
     directorError = directed.error;
   }
   const prompt = composePrompt(o.category, o.action, o.instruction, refs, usesGuide(o));
   if (!prompt) throw new Error("Escolha um pronto ou escreva o que você quer.");
-  return { prompt, directed: false, directorError, props: propsFromText(o.instruction) };
+  return { prompt: withPlacement(prompt, o.engine.kind === "inpaint" ? "" : placementText(o, p)), directed: false, directorError, props: propsFromText(o.instruction) };
 }
 
 /** Mostra o pedido que vai para a IA, para revisar antes de gastar a geração. */
