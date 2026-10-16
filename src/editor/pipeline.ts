@@ -50,6 +50,8 @@ export interface EditResult {
   cutout?: MediaRef;
   /** Aviso sobre como o resultado foi encaixado. */
   note?: string;
+  /** Quanto cada etapa levou, em segundos. */
+  timings?: [string, number][];
 }
 
 /** Abaixo disto a IA não entende a cena e inventa tudo (medido no Modify). */
@@ -330,17 +332,40 @@ export async function previewPrompt(o: EditOptions, ctx: JobContext): Promise<{ 
 }
 
 export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r: EditResult) => void }): Promise<EditResult[]> {
-  ctx.onStatus?.("Preparando a área…");
-  const prep = await prepare(o);
-  const { original, rect, aspect, out, tier } = prep;
-  const { prompt, props } = await buildPrompt(o, prep, ctx);
+  const timings: [string, number][] = [];
+  const timed = async <T,>(label: string, work: Promise<T>): Promise<T> => {
+    const t0 = performance.now();
+    try {
+      return await work;
+    } finally {
+      const secs = (performance.now() - t0) / 1000;
+      const prev = timings.find((t) => t[0] === label);
+      if (prev) prev[1] += secs;
+      else timings.push([label, secs]);
+    }
+  };
 
-  ctx.onStatus?.("Enviando a cena…");
-  const sceneUrl = await replicateUpload(await cropBlob(original, rect, out, o.engine.kind === "inpaint" ? "image/png" : "image/jpeg"), "cena.jpg", ctx);
-  const refUrls = o.engine.references
-    ? await Promise.all(o.references.map(async (r, i) => replicateUpload(await mediaBlob(r), `referencia-${i + 1}.png`, ctx)))
-    : [];
-  const maskUrl = o.engine.kind === "inpaint" ? await replicateUpload(await maskBlob(o.mask, rect, out), "mascara.png", ctx) : undefined;
+  ctx.onStatus?.("Preparando a área…");
+  const prep = await timed("preparo", prepare(o));
+  const { original, rect, aspect, out, tier } = prep;
+
+  // O diretor (Google) e o envio da cena (Replicate) não dependem um do
+  // outro: correm juntos.
+  ctx.onStatus?.(o.director && !o.promptOverride ? "Diretor lendo a cena e enviando…" : "Enviando a cena…");
+  const [{ prompt, props }, { sceneUrl, refUrls, maskUrl }] = await Promise.all([
+    timed("diretor", buildPrompt(o, prep, { ...ctx, onStatus: undefined })),
+    timed(
+      "envio",
+      (async () => {
+        const sceneUrl = await replicateUpload(await cropBlob(original, rect, out, o.engine.kind === "inpaint" ? "image/png" : "image/jpeg"), "cena.jpg", ctx);
+        const refUrls = o.engine.references
+          ? await Promise.all(o.references.map(async (r, i) => replicateUpload(await mediaBlob(r), `referencia-${i + 1}.png`, ctx)))
+          : [];
+        const maskUrl = o.engine.kind === "inpaint" ? await replicateUpload(await maskBlob(o.mask, rect, out), "mascara.png", ctx) : undefined;
+        return { sceneUrl, refUrls, maskUrl };
+      })(),
+    ),
+  ]);
 
   const input: Record<string, unknown> = { prompt };
   if (o.engine.kind === "inpaint") {
@@ -381,7 +406,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   // geração, uma chamada por vez, para não esbarrar no limite do Replicate).
   let existing: ImageBitmap[] | null | undefined;
   const segmentOnce = async (url: string, what: string) => {
-    const r = await findObjects(url, what, ctx).catch((e) => {
+    const r = await timed("recorte", findObjects(url, what, ctx)).catch((e) => {
       if (ctx.signal?.aborted) throw e;
       return { masks: [] as ImageBitmap[], calls: 0 };
     });
@@ -391,13 +416,13 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
 
   for (let call = 0; call < calls; call++) {
     ctx.onStatus?.(calls > 1 ? `Gerando variação ${call + 1} de ${calls}…` : "Gerando…");
-    const urls = await replicateRun({ model: o.engine.model }, { ...input, ...(calls > 1 ? { seed: Math.floor(Math.random() * 1e9) } : {}) }, ctx);
+    const urls = await timed("geração", replicateRun({ model: o.engine.model }, { ...input, ...(calls > 1 ? { seed: Math.floor(Math.random() * 1e9) } : {}) }, ctx));
     if (!urls.length) throw new ProviderError("replicate", "O modelo não devolveu imagem.");
     record(costModel, urls.length, true);
 
     for (const url of urls) {
       ctx.onStatus?.("Encaixando o resultado…");
-      const result = await bitmapFromUrl(url);
+      const result = await timed("download", bitmapFromUrl(url));
       let alpha = selAlpha;
       let note: string | undefined;
       let cutout: MediaRef | undefined;
@@ -415,6 +440,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
         const W = Math.round(result.width * k), H = Math.round(result.height * k);
         const before = canvas(W, H);
         before.getContext("2d")!.drawImage(original, rect.x, rect.y, rect.w, rect.h, 0, 0, W, H);
+        const t0 = performance.now();
         const built = found.masks.length
           ? buildObjectMask({
               w: W,
@@ -428,6 +454,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
               shadow: o.shadow,
             })
           : null;
+        timings.push(["contorno", (performance.now() - t0) / 1000]);
         if (built) {
           alpha = planeToCanvas(built.alpha, rect.w, rect.h);
           note = built.note;
@@ -448,9 +475,14 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
         if (coverage(diff) > coverage(alpha)) alpha = intersect(diff, grownSelection(o.mask, rect));
         note = "Quase nada mudou dentro da área marcada. Tente o motor Nano Banana, descreva onde a pessoa fica, ou use \"Contorno da seleção\".";
       }
-      const blob = await compose(original, result, rect, alpha);
-      const media = await saveBytes(new Uint8Array(await blob.arrayBuffer()), "image/png", { model: o.engine.name, prompt: o.instruction || o.action });
-      const r: EditResult = { media, prompt, cutout, note };
+      const media = await timed(
+        "montagem",
+        (async () => {
+          const blob = await compose(original, result, rect, alpha);
+          return saveBytes(new Uint8Array(await blob.arrayBuffer()), "image/png", { model: o.engine.name, prompt: o.instruction || o.action });
+        })(),
+      );
+      const r: EditResult = { media, prompt, cutout, note, timings: timings.map(([l, s]) => [l, Math.round(s * 10) / 10]) };
       results.push(r);
       ctx.onResult?.(r);
     }

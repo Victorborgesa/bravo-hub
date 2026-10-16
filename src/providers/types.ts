@@ -56,6 +56,8 @@ export interface TextJob {
   system: string;
   prompt: string;
   images: MediaRef[];
+  /** Pede resposta rápida (pouco raciocínio), para tarefas curtas. */
+  fast?: boolean;
 }
 
 export interface JobContext {

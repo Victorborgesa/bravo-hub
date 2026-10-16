@@ -478,9 +478,14 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
             </div>
           )}
           <AnimatePresence>
-            {pickedResult && (showPrompt || pickedResult.note) && (
+            {pickedResult && (showPrompt || pickedResult.note || pickedResult.timings) && (
               <motion.div className="result-info" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.22 }}>
                 {pickedResult.note && <p className="result-note">{pickedResult.note}</p>}
+                {pickedResult.timings && (
+                  <p className="result-times">
+                    {pickedResult.timings.filter(([, s]) => s >= 0.1).map(([l, s]) => `${l} ${s < 10 ? s.toFixed(1) : Math.round(s)}s`).join("  ·  ")}
+                  </p>
+                )}
                 {showPrompt && (
                   <>
                     <div className="result-info-head">

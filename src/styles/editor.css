@@ -139,3 +139,5 @@
 .ed-zoom-pct { min-width: 50px; height: 30px; border-radius: 8px; font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: var(--text-soft); transition: color 160ms, background 160ms; }
 .ed-zoom-pct:hover { color: var(--paper); background: rgba(255, 255, 255, 0.06); }
 .tool-btn:disabled { opacity: 0.35; pointer-events: none; }
+.result-times { margin: 0; font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: 0.02em; color: var(--muted); }
+.result-info:not(:has(pre)):not(:has(.result-note)) { padding: 8px 14px; }

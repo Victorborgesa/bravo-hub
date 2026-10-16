@@ -96,7 +96,7 @@ export async function directPrompt(i: DirectorInput, ctx: JobContext): Promise<{
       const model = modelById(id);
       if (!model) continue;
       try {
-        const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene] }, ctx)).trim();
+        const text = (await generateText({ model, system: METHOD, prompt: ask, images: [scene], fast: true }, ctx)).trim();
         if (text.length < 40) continue;
         useCosts.getState().record(model, 0.003, true);
         const split = splitProps(text.replace(/^["'`]+|["'`]+$/g, ""));

@@ -103,18 +103,21 @@ export async function googleVideo(job: VideoJob, ctx: JobContext): Promise<Media
 }
 
 export async function googleText(job: TextJob, ctx: JobContext): Promise<string> {
-  const res = await requestJson<GenerateContentResponse>(
-    "google",
-    `${BASE}/models/${job.model.apiModel}:generateContent`,
-    {
-      method: "POST",
-      headers: await headers(),
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: job.system }] },
-        contents: [{ role: "user", parts: [{ text: job.prompt }, ...(await inlineParts(job.images))] }],
-      }),
-    },
-    ctx,
-  );
+  const h = await headers();
+  const base = {
+    systemInstruction: { parts: [{ text: job.system }] },
+    contents: [{ role: "user", parts: [{ text: job.prompt }, ...(await inlineParts(job.images))] }],
+  };
+  const call = (body: object) =>
+    requestJson<GenerateContentResponse>("google", `${BASE}/models/${job.model.apiModel}:generateContent`, { method: "POST", headers: h, body: JSON.stringify(body) }, ctx);
+  let res: GenerateContentResponse;
+  try {
+    // Raciocínio curto: a tarefa é escrever um texto, não resolver um problema.
+    res = await call(job.fast ? { ...base, generationConfig: { thinkingConfig: { thinkingLevel: "low" } } } : base);
+  } catch (e) {
+    // Modelos que não conhecem o ajuste recusam com 400: vai sem ele.
+    if (!job.fast || !(e instanceof ProviderError) || !e.message.startsWith("400")) throw e;
+    res = await call(base);
+  }
   return res.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
 }

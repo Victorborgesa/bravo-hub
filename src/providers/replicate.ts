@@ -92,13 +92,16 @@ export async function replicateRun(
   ctx: JobContext,
 ): Promise<string[]> {
   const h = { Authorization: `Bearer ${await requireSecret("replicate", "replicate")}`, "Content-Type": "application/json" };
+  // "Prefer: wait" segura a resposta até o resultado sair (até 60 s), sem
+  // precisar perguntar de tempos em tempos.
+  const hWait = { ...h, Prefer: "wait=55" };
   const url = target.model ? `${BASE}/models/${target.model}/predictions` : `${BASE}/predictions`;
   const body = target.model ? { input } : { version: target.version, input };
   // Contas com pouco saldo têm limite de criações por minuto: espera e tenta de novo.
   let created: Prediction | null = null;
   for (let attempt = 0; !created; attempt++) {
     try {
-      created = await requestJson<Prediction>("replicate", url, { method: "POST", headers: h, body: JSON.stringify(body) }, ctx);
+      created = await requestJson<Prediction>("replicate", url, { method: "POST", headers: hWait, body: JSON.stringify(body) }, ctx);
     } catch (e) {
       if (attempt >= 5 || !(e instanceof ProviderError) || !e.message.includes("429")) throw e;
       ctx.onStatus?.("Replicate pediu um tempinho, tentando de novo…");
@@ -109,11 +112,12 @@ export async function replicateRun(
     }
   }
   const id = created.id;
-  const done = await poll(async () => {
+  if (created.status === "failed" || created.status === "canceled") throw new ProviderError("replicate", created.error ?? "Falha na geração");
+  const done = created.status === "succeeded" && created.output ? created : await poll(async () => {
     const p = await requestJson<Prediction>("replicate", `${BASE}/predictions/${id}`, { headers: h }, ctx);
     if (p.status === "failed" || p.status === "canceled") throw new ProviderError("replicate", p.error ?? "Falha na geração");
     return p.status === "succeeded" ? p : null;
-  }, ctx, { interval: 2500 });
+  }, ctx, { interval: 1200 });
   const out = done.output;
   return (Array.isArray(out) ? out : out ? [out] : []).filter((u): u is string => typeof u === "string");
 }
