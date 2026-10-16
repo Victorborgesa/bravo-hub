@@ -6,7 +6,9 @@ import { mediaBlob, saveBytes, type MediaRef } from "../lib/media";
 import { replicateRun, replicateUpload } from "../providers/replicate";
 import { ProviderError, type JobContext, type ModelDef } from "../providers/types";
 import { useCosts } from "../store/costs";
-import { composePrompt, engineCost, nearestAspect, SEGMENT_COST, SEGMENT_VERSION, tierForSize, translateObject, type EditEngine } from "./engines";
+import { composePrompt, engineCost, integrationOf, nearestAspect, SAM3_COST, tierForSize, wrapDirected, type EditEngine } from "./engines";
+import { directPrompt } from "./director";
+import { alphaPlane, buildObjectMask, findObjects, planeToCanvas } from "./segment";
 
 export interface Rect {
   x: number;
@@ -33,11 +35,21 @@ export interface EditOptions {
   placement: Placement;
   objectName: string;
   keepInside: boolean;
+  /** Levar a sombra do objeto junto no recorte. */
+  shadow: boolean;
+  /** Deixar o diretor de prompt reescrever o pedido olhando a cena. */
+  director: boolean;
+  /** Pedido final já revisado pelo usuário: vai exatamente assim. */
+  promptOverride?: string;
 }
 
 export interface EditResult {
   media: MediaRef;
   prompt: string;
+  /** Só o objeto recortado, com fundo transparente. */
+  cutout?: MediaRef;
+  /** Aviso sobre como o resultado foi encaixado. */
+  note?: string;
 }
 
 /** Abaixo disto a IA não entende a cena e inventa tudo (medido no Modify). */
@@ -205,15 +217,6 @@ function differenceAlpha(original: CanvasImageSource, result: CanvasImageSource,
   return lumaToAlpha(grown, rect.w, rect.h, feather);
 }
 
-async function segment(imageUrl: string, object: string, ctx: JobContext): Promise<ImageBitmap | null> {
-  const target = translateObject(object);
-  if (!target) return null;
-  const urls = await replicateRun({ version: SEGMENT_VERSION }, { image: imageUrl, mask_prompt: target, negative_mask_prompt: "", adjustment_factor: 0 }, ctx);
-  // Saídas conhecidas: anotada, invertida... a máscara positiva termina em /mask.
-  const url = urls.find((u) => /\/mask\.(jpe?g|png)(\?|$)/i.test(u)) ?? (urls.length === 4 ? urls[2] : undefined);
-  return url ? bitmapFromUrl(url) : null;
-}
-
 /** Junta o resultado à imagem original só onde a máscara deixa. */
 async function compose(original: ImageBitmap, result: ImageBitmap, rect: Rect, alpha: HTMLCanvasElement) {
   const out = canvas(original.width, original.height);
@@ -248,22 +251,77 @@ function grownSelection(mask: HTMLCanvasElement, rect: Rect) {
   return c;
 }
 
-export function estimateEdit(o: Pick<EditOptions, "engine" | "variations" | "tier" | "placement">) {
+const DIRECTOR_COST = 0.003;
+
+export function estimateEdit(o: Pick<EditOptions, "engine" | "variations" | "tier" | "placement" | "director" | "category" | "action">) {
   const each = engineCost(o.engine, o.tier) ?? 0.05;
-  return o.variations * each + (o.placement === "object" ? o.variations * SEGMENT_COST : 0);
+  let total = o.variations * each;
+  if (o.placement === "object") total += (o.variations + (integrationOf(o.category, o.action) === "inserir" ? 1 : 0)) * SAM3_COST;
+  if (o.director) total += DIRECTOR_COST;
+  return total;
 }
 
-export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r: EditResult) => void }): Promise<EditResult[]> {
+interface Prepared {
+  original: ImageBitmap;
+  rect: Rect;
+  aspect?: string;
+  out: { w: number; h: number };
+  tier?: string;
+}
+
+async function prepare(o: EditOptions): Promise<Prepared> {
   const sel = maskBounds(o.mask);
   if (!sel) throw new Error("Pinte ou desenhe a área que você quer modificar.");
-  const prompt = composePrompt(o.category, o.action, o.instruction, o.engine.references ? o.references.length : 0);
-  if (!prompt) throw new Error("Escolha um pronto ou escreva o que você quer.");
-
-  ctx.onStatus?.("Preparando a área…");
   const original = await loadBitmap(o.image);
   const { rect, aspect } = sendRect(sel, original.width, original.height, o.moreContext, o.engine.kind === "inpaint" ? undefined : o.engine.aspectRatios);
   const out = scaled(rect, o.maxSide);
   const tier = o.engine.tier ? o.tier ?? tierForSize(o.engine.tier, Math.max(out.w, out.h)) : undefined;
+  return { original, rect, aspect, out, tier };
+}
+
+/** A cena como o diretor vê: a área da edição em laranja, o resto um pouco apagado. */
+async function directorView(o: EditOptions, p: Prepared) {
+  const k = Math.min(1, 1024 / Math.max(p.rect.w, p.rect.h));
+  const w = Math.round(p.rect.w * k), h = Math.round(p.rect.h * k);
+  const c = canvas(w, h);
+  const g = c.getContext("2d")!;
+  g.drawImage(p.original, p.rect.x, p.rect.y, p.rect.w, p.rect.h, 0, 0, w, h);
+  const tint = canvas(w, h);
+  const tg = tint.getContext("2d")!;
+  tg.drawImage(o.mask, p.rect.x, p.rect.y, p.rect.w, p.rect.h, 0, 0, w, h);
+  tg.globalCompositeOperation = "source-in";
+  tg.fillStyle = "rgba(255, 120, 40, 0.42)";
+  tg.fillRect(0, 0, w, h);
+  g.drawImage(tint, 0, 0);
+  return toBlob(c, "image/jpeg", 0.88);
+}
+
+async function buildPrompt(o: EditOptions, p: Prepared, ctx: JobContext): Promise<{ prompt: string; directed: boolean }> {
+  if (o.promptOverride?.trim()) return { prompt: o.promptOverride.trim(), directed: false };
+  const refs = o.engine.references ? o.references.length : 0;
+  if (o.director) {
+    ctx.onStatus?.("Diretor lendo a cena…");
+    const directed = await directPrompt(
+      { engine: o.engine, category: o.category, action: o.action, instruction: o.instruction, references: refs, scene: await directorView(o, p) },
+      ctx,
+    );
+    if (directed) return { prompt: wrapDirected(directed.text, refs, o.engine.kind === "inpaint"), directed: true };
+  }
+  const prompt = composePrompt(o.category, o.action, o.instruction, refs);
+  if (!prompt) throw new Error("Escolha um pronto ou escreva o que você quer.");
+  return { prompt, directed: false };
+}
+
+/** Mostra o pedido que vai para a IA, para revisar antes de gastar a geração. */
+export async function previewPrompt(o: EditOptions, ctx: JobContext): Promise<{ prompt: string; directed: boolean }> {
+  return buildPrompt(o, await prepare(o), ctx);
+}
+
+export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r: EditResult) => void }): Promise<EditResult[]> {
+  ctx.onStatus?.("Preparando a área…");
+  const prep = await prepare(o);
+  const { original, rect, aspect, out, tier } = prep;
+  const { prompt } = await buildPrompt(o, prep, ctx);
 
   ctx.onStatus?.("Enviando a cena…");
   const sceneUrl = await replicateUpload(await cropBlob(original, rect, out, o.engine.kind === "inpaint" ? "image/png" : "image/jpeg"), "cena.jpg", ctx);
@@ -295,6 +353,7 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
     aspects: [],
     price: { usd: engineCost(o.engine, tier) ?? 0.05, unit: "imagem" },
   } as ModelDef;
+  const segModel = { ...costModel, id: "edit-segment", label: "Recorte SAM 3 (editor)", apiModel: "sam3", price: { usd: SAM3_COST, unit: "imagem" } } as ModelDef;
 
   // Motores que devolvem várias imagens numa chamada recebem o número de
   // variações; os outros fazem uma chamada por variação.
@@ -304,6 +363,18 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
   const results: EditResult[] = [];
   const feather = Math.max(2, Math.round(Math.max(rect.w, rect.h) * 0.006));
   const selAlpha = selectionAlpha(o.mask, rect, feather);
+  const wantsObject = o.placement === "object" && o.objectName.trim().length > 0;
+  const adding = integrationOf(o.category, o.action) === "inserir";
+  // O que já existia na cena é procurado uma vez só, para não colar de novo.
+  let existing: Promise<ImageBitmap[]> | null = null;
+  if (wantsObject && adding) {
+    existing = findObjects(sceneUrl, o.objectName, ctx)
+      .then((r) => {
+        if (r.calls) record(segModel, r.calls, true);
+        return r.masks;
+      })
+      .catch(() => []);
+  }
 
   for (let call = 0; call < calls; call++) {
     ctx.onStatus?.(calls > 1 ? `Gerando variação ${call + 1} de ${calls}…` : "Gerando…");
@@ -315,23 +386,81 @@ export async function runEdit(o: EditOptions, ctx: JobContext & { onResult?: (r:
       ctx.onStatus?.("Encaixando o resultado…");
       const result = await bitmapFromUrl(url);
       let alpha = selAlpha;
-      if (o.placement === "object" && o.objectName.trim()) {
-        const segmented = await segment(url, o.objectName, ctx).catch(() => null);
-        if (segmented) {
-          record({ ...costModel, id: "edit-segment", label: "Segmentador (editor)", price: { usd: SEGMENT_COST, unit: "imagem" } }, 1, true);
-          const objAlpha = lumaToAlpha(segmented, rect.w, rect.h, feather);
-          alpha = o.keepInside ? intersect(objAlpha, grownSelection(o.mask, rect)) : objAlpha;
+      let note: string | undefined;
+      let cutout: MediaRef | undefined;
+
+      if (wantsObject) {
+        ctx.onStatus?.("Recortando o contorno…");
+        const found = await findObjects(url, o.objectName, ctx).catch(() => ({ masks: [] as ImageBitmap[], calls: 0 }));
+        if (found.calls) record(segModel, found.calls, true);
+        // Tamanho de trabalho: o do resultado, limitado para não pesar.
+        const k = Math.min(1, 2048 / Math.max(result.width, result.height));
+        const W = Math.round(result.width * k), H = Math.round(result.height * k);
+        const before = canvas(W, H);
+        before.getContext("2d")!.drawImage(original, rect.x, rect.y, rect.w, rect.h, 0, 0, W, H);
+        const built = found.masks.length
+          ? buildObjectMask({
+              w: W,
+              h: H,
+              found: found.masks,
+              existing: existing ? await existing : null,
+              original: before,
+              result,
+              area: o.keepInside ? alphaPlane(grownSelection(o.mask, rect), W, H) : null,
+              shadow: o.shadow,
+            })
+          : null;
+        if (built) {
+          alpha = planeToCanvas(built.alpha, rect.w, rect.h);
+          note = built.note;
+          cutout = await saveCutout(result, rect, alpha, o);
+        } else {
+          // Não achou nada novo com esse nome: cai para o que mudou.
+          const diff = differenceAlpha(original, result, rect, feather);
+          alpha = intersect(diff, grownSelection(o.mask, rect));
+          note = `Não encontrei "${o.objectName}" novo na área; encaixei pelo que mudou.`;
         }
       } else if (o.placement === "changed") {
         const diff = differenceAlpha(original, result, rect, feather);
         alpha = o.keepInside ? intersect(diff, grownSelection(o.mask, rect)) : diff;
       }
+      // Rede de segurança: máscara praticamente vazia vira aviso, não resultado mudo.
+      if (o.placement !== "shape" && coverage(alpha) < 0.0015) {
+        const diff = differenceAlpha(original, result, rect, feather);
+        if (coverage(diff) > coverage(alpha)) alpha = intersect(diff, grownSelection(o.mask, rect));
+        note = "Quase nada mudou dentro da área marcada. Tente o motor Nano Banana, descreva onde a pessoa fica, ou use \"Contorno da seleção\".";
+      }
       const blob = await compose(original, result, rect, alpha);
       const media = await saveBytes(new Uint8Array(await blob.arrayBuffer()), "image/png", { model: o.engine.name, prompt: o.instruction || o.action });
-      const r = { media, prompt };
+      const r: EditResult = { media, prompt, cutout, note };
       results.push(r);
       ctx.onResult?.(r);
     }
   }
   return results;
+}
+
+/** Fração da área com alfa visível (amostrada, para ser rápida). */
+function coverage(c: HTMLCanvasElement) {
+  const k = Math.min(1, 256 / Math.max(c.width, c.height));
+  const w = Math.max(1, Math.round(c.width * k)), h = Math.max(1, Math.round(c.height * k));
+  const small = canvas(w, h);
+  const g = small.getContext("2d")!;
+  g.drawImage(c, 0, 0, w, h);
+  const d = g.getImageData(0, 0, w, h).data;
+  let on = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 60) on++;
+  return on / (w * h);
+}
+
+/** PNG transparente só com o objeto (e a sombra), pronto para o Photoshop. */
+async function saveCutout(result: ImageBitmap, rect: Rect, alpha: HTMLCanvasElement, o: EditOptions) {
+  const patch = canvas(rect.w, rect.h);
+  const g = patch.getContext("2d")!;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(result, 0, 0, rect.w, rect.h);
+  g.globalCompositeOperation = "destination-in";
+  g.drawImage(alpha, 0, 0);
+  const blob = await toBlob(patch);
+  return saveBytes(new Uint8Array(await blob.arrayBuffer()), "image/png", { model: `${o.engine.name} · recorte`, prompt: o.objectName });
 }

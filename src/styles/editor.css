@@ -112,3 +112,19 @@
 .pill:disabled { opacity: 0.4; cursor: default; }
 
 @media (max-width: 1200px) { .editor-body { grid-template-columns: 1fr 340px; } }
+
+/* Diretor de prompt e revisão do pedido */
+.ep-director { display: flex; align-items: center; gap: 10px; }
+.ep-director .switch-row { flex: 1; min-width: 0; }
+.ep-ghost { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.12); font-size: 12px; color: var(--text-soft); white-space: nowrap; transition: border-color 180ms, color 180ms, background 180ms; }
+.ep-ghost:hover:not(:disabled) { border-color: var(--paper); color: var(--paper); background: rgba(255, 255, 255, 0.04); }
+.ep-ghost:disabled { opacity: 0.6; }
+.ep-draft { overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+.ep-draft-head, .result-info-head { display: flex; align-items: center; justify-content: space-between; }
+.ep-input.mono { font-family: "JetBrains Mono", monospace; font-size: 11.5px; line-height: 1.55; color: var(--text-soft); resize: vertical; }
+
+/* Resultado: ferramentas, aviso e pedido enviado */
+.result-tools { display: flex; gap: 2px; margin-left: 4px; padding-left: 8px; border-left: 1px solid rgba(255, 255, 255, 0.1); }
+.result-info { width: min(720px, 100%); max-height: 220px; overflow: auto; padding: 14px 16px; border-radius: 14px; background: var(--glass); backdrop-filter: var(--glass-blur); border: 1px solid rgba(255, 255, 255, 0.08); }
+.result-info pre { margin: 8px 0 0; white-space: pre-wrap; font-family: "JetBrains Mono", monospace; font-size: 11.5px; line-height: 1.6; color: var(--text-soft); }
+.result-note { margin: 0; font-size: 12.5px; color: var(--accent, #e0866a); }

@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from "motion/react";
-import { Brush, Check, Eraser, Eye, EyeOff, ImagePlus, Lasso, RotateCcw, Square, Undo2, X, Loader2, FlipHorizontal2 } from "lucide-react";
+import { Brush, Check, Copy, Download, Eraser, Eye, EyeOff, FileText, ImagePlus, Lasso, RotateCcw, ScanEye, Square, Undo2, X, Loader2, FlipHorizontal2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { useEditor } from "./store";
 import { ACTIONS, ENGINES, FAMILIES, engineById, type EditEngine } from "./engines";
-import { estimateEdit, runEdit, type EditResult, type Placement } from "./pipeline";
+import { estimateEdit, previewPrompt, runEdit, type EditOptions, type EditResult, type Placement } from "./pipeline";
 import { importFiles } from "../canvas/nodes";
-import { MediaView } from "../canvas/nodes/controls";
+import { downloadMedia, MediaView } from "../canvas/nodes/controls";
 import { Timer } from "../canvas/Timer";
 import { useActiveSpace, useSpaces } from "../store/spaces";
 import { notify } from "../store/toasts";
@@ -29,6 +29,8 @@ interface EditorPrefs {
   placement: Placement;
   objectName: string;
   keepInside: boolean;
+  shadow: boolean;
+  director: boolean;
   set: (p: Partial<EditorPrefs>) => void;
 }
 
@@ -46,6 +48,8 @@ const usePrefs = create<EditorPrefs>()(
       placement: "object",
       objectName: "pessoa",
       keepInside: true,
+      shadow: true,
+      director: true,
       set: (p) => set(p),
     }),
     { name: "bravo-editor-prefs", partialize: ({ set: _s, ...rest }) => rest },
@@ -76,6 +80,9 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   const [compare, setCompare] = useState(50);
   const [running, setRunning] = useState<{ started: number; status: string; controller: AbortController } | null>(null);
   const [path, setPath] = useState<{ x: number; y: number }[]>([]);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
   const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const maskRef = useRef<HTMLCanvasElement>(null);
@@ -219,9 +226,53 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
   }
 
   const estimate = useMemo(
-    () => estimateEdit({ engine, variations: prefs.variations, tier: prefs.tier === "auto" ? undefined : prefs.tier, placement: prefs.placement }),
-    [engine, prefs.variations, prefs.tier, prefs.placement],
+    () =>
+      estimateEdit({
+        engine,
+        variations: prefs.variations,
+        tier: prefs.tier === "auto" ? undefined : prefs.tier,
+        placement: prefs.placement,
+        director: prefs.director && !draft,
+        category: prefs.category,
+        action: prefs.action,
+      }),
+    [engine, prefs.variations, prefs.tier, prefs.placement, prefs.director, prefs.category, prefs.action, draft],
   );
+
+  const options = (): EditOptions => ({
+    image: media,
+    mask: maskRef.current!,
+    engine,
+    category: prefs.category,
+    action: prefs.action,
+    instruction: prefs.instruction,
+    references: engine.references ? references : [],
+    variations: prefs.variations,
+    tier: prefs.tier === "auto" ? undefined : prefs.tier,
+    moreContext: prefs.moreContext,
+    maxSide: prefs.maxSide,
+    placement: prefs.placement,
+    objectName: prefs.objectName,
+    keepInside: prefs.keepInside,
+    shadow: prefs.shadow,
+    director: prefs.director,
+    promptOverride: draft ?? undefined,
+  });
+
+  /** Roda só o diretor e mostra o pedido para revisar antes de gerar. */
+  async function review() {
+    if (!maskRef.current || drafting || running) return;
+    setDrafting(true);
+    try {
+      const { prompt, directed } = await previewPrompt({ ...options(), promptOverride: undefined }, {});
+      setDraft(prompt);
+      if (prefs.director && !directed) notify("O diretor não respondeu (confira a chave do Google em Ajustes). Mostrando o pedido padrão.", "error");
+    } catch (e) {
+      notify(`Editor: ${e instanceof Error ? e.message : e}`, "error");
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   async function generate() {
     if (!maskRef.current || running) return;
@@ -229,28 +280,15 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
     setRunning({ started: Date.now(), status: "Preparando…", controller });
     try {
       const out = await runEdit(
-        {
-          image: media,
-          mask: maskRef.current,
-          engine,
-          category: prefs.category,
-          action: prefs.action,
-          instruction: prefs.instruction,
-          references: engine.references ? references : [],
-          variations: prefs.variations,
-          tier: prefs.tier === "auto" ? undefined : prefs.tier,
-          moreContext: prefs.moreContext,
-          maxSide: prefs.maxSide,
-          placement: prefs.placement,
-          objectName: prefs.objectName,
-          keepInside: prefs.keepInside,
-        },
+        options(),
         {
           signal: controller.signal,
           onStatus: (status) => setRunning((r) => (r ? { ...r, status } : r)),
           onResult: (r) => {
             setResults((all) => [r, ...all]);
             setPicked(r.media.id);
+            // Mostra o resultado inteiro; o usuário arrasta para comparar.
+            setCompare(0);
             setShowMask(false);
           },
         },
@@ -351,15 +389,39 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
                 <MediaView media={media} />
               </button>
               {results.map((r) => (
-                <motion.button key={r.media.id} className={`thumb develop ${picked === r.media.id ? "is-active" : ""}`} onClick={() => { setPicked(r.media.id); setShowMask(false); }} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
+                <motion.button key={r.media.id} className={`thumb develop ${picked === r.media.id ? "is-active" : ""}`} onClick={() => { setPicked(r.media.id); setShowMask(false); setCompare(0); }} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
                   <MediaView media={r.media} />
                 </motion.button>
               ))}
+              {pickedResult && (
+                <div className="result-tools">
+                  {pickedResult.cutout && (
+                    <button className="tool-btn" title="Baixar só o recorte (PNG transparente)" onClick={() => downloadMedia(pickedResult.cutout!)}><Download size={16} /></button>
+                  )}
+                  <button className={`tool-btn ${showPrompt ? "is-active" : ""}`} title="Ver o pedido enviado" onClick={() => setShowPrompt((v) => !v)}><FileText size={16} /></button>
+                </div>
+              )}
               {pickedResult && space && (
                 <button className="btn btn-primary apply-btn" onClick={apply}><Check size={15} /> Aplicar no fluxo</button>
               )}
             </div>
           )}
+          <AnimatePresence>
+            {pickedResult && (showPrompt || pickedResult.note) && (
+              <motion.div className="result-info" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.22 }}>
+                {pickedResult.note && <p className="result-note">{pickedResult.note}</p>}
+                {showPrompt && (
+                  <>
+                    <div className="result-info-head">
+                      <span className="eyebrow">Pedido enviado</span>
+                      <button className="icon-btn" title="Copiar" onClick={() => { navigator.clipboard.writeText(pickedResult.prompt); notify("Pedido copiado.", "ok"); }}><Copy size={14} /></button>
+                    </div>
+                    <pre>{pickedResult.prompt}</pre>
+                  </>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
 
         <motion.aside className="editor-panel" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.05, delayChildren: 0.1 } } }}>
@@ -389,16 +451,33 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
               id="category"
               options={Object.keys(ACTIONS).map((c) => ({ value: c, label: c === "Prompt livre" ? "Livre" : c }))}
               value={prefs.category}
-              onChange={(c) => prefs.set({ category: c, action: ACTIONS[c]?.[0]?.[0] ?? "" })}
+              onChange={(c) => { prefs.set({ category: c, action: ACTIONS[c]?.[0]?.[0] ?? "" }); setDraft(null); }}
             />
             {actions.length > 0 && (
               <div className="ep-chips">
                 {actions.map(([name]) => (
-                  <button key={name} className={`ep-chip ${prefs.action === name ? "is-active" : ""}`} onClick={() => prefs.set({ action: name })}>{name}</button>
+                  <button key={name} className={`ep-chip ${prefs.action === name ? "is-active" : ""}`} onClick={() => { prefs.set({ action: name }); setDraft(null); }}>{name}</button>
                 ))}
               </div>
             )}
-            <textarea className="ep-input" rows={3} placeholder="Descreva com as suas palavras… ex.: mulher de costas abrindo as cortinas" value={prefs.instruction} onChange={(e) => prefs.set({ instruction: e.target.value })} />
+            <textarea className="ep-input" rows={3} placeholder="Descreva com as suas palavras… ex.: mulher de costas abrindo as cortinas" value={prefs.instruction} onChange={(e) => { prefs.set({ instruction: e.target.value }); setDraft(null); }} />
+            <div className="ep-director">
+              <Switch checked={prefs.director} onChange={(director) => { prefs.set({ director }); setDraft(null); }} label="Diretor de prompt" hint="Lê a luz, a câmera e a escala da cena e escreve o pedido" />
+              <button className="ep-ghost" onClick={review} disabled={drafting}>
+                {drafting ? <Loader2 size={13} className="spin" /> : <ScanEye size={13} />} {draft ? "Refazer" : "Ver antes"}
+              </button>
+            </div>
+            <AnimatePresence initial={false}>
+              {draft !== null && (
+                <motion.div key="draft" className="ep-draft" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}>
+                  <div className="ep-draft-head">
+                    <span className="eyebrow">Pedido revisado · vai assim</span>
+                    <button className="icon-btn" title="Descartar e deixar o diretor escrever na hora" onClick={() => setDraft(null)}><X size={13} /></button>
+                  </div>
+                  <textarea className="ep-input mono" rows={9} value={draft} onChange={(e) => setDraft(e.target.value)} />
+                </motion.div>
+              )}
+            </AnimatePresence>
             {engine.references ? (
               <div className="ep-refs">
                 <AnimatePresence>
@@ -447,7 +526,7 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
           <Section n="04" title="Como entra na imagem">
             <div className="ep-cards">
               {([
-                ["object", "Só o objeto pedido", "Recorta só o que você nomear"],
+                ["object", "Recorte exato", "Contorno do que você nomear"],
                 ["changed", "Só o que mudou", "Compara com o original"],
                 ["shape", "Contorno da seleção", "Usa a área inteira pintada"],
               ] as const).map(([v, t, d]) => (
@@ -463,6 +542,7 @@ function Editor({ media, nodeId, onClose }: { media: MediaRef; nodeId?: string; 
                 <motion.input key="obj" className="ep-input single" placeholder="O quê? ex.: mulher, carro, árvore" value={prefs.objectName} onChange={(e) => prefs.set({ objectName: e.target.value })} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 40 }} exit={{ opacity: 0, height: 0 }} />
               )}
             </AnimatePresence>
+            {prefs.placement === "object" && <Switch checked={prefs.shadow} onChange={(shadow) => prefs.set({ shadow })} label="Levar a sombra junto" hint="Sombra de contato e projetada" />}
             {prefs.placement !== "shape" && <Switch checked={prefs.keepInside} onChange={(keepInside) => prefs.set({ keepInside })} label="Não deixar sair da seleção" />}
           </Section>
 

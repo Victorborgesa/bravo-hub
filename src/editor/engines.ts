@@ -159,11 +159,23 @@ export function composePrompt(category: string, action: string, instruction: str
   return parts.join("\n\n");
 }
 
+/** Pedido escrito pelo diretor, com os papéis das imagens e a cláusula de preservação. */
+export function wrapDirected(text: string, refs: number, inpaint: boolean): string {
+  if (inpaint) return text;
+  return [rolesText(refs), text, refs ? referenceText(refs) : "", FOOTER].filter(Boolean).join("\n\n");
+}
+
+/** Tipo de integração do pronto escolhido (inserir, remover…). */
+export const integrationOf = (category: string, action: string) => ACTIONS[category]?.find((a) => a[0] === action)?.[2] ?? "livre";
+
 // ---------------------------------------------------------------------------
 // Segmentador (Grounded SAM): só entende inglês.
 
 export const SEGMENT_VERSION = "ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c";
 export const SEGMENT_COST = 0.0032;
+/** SAM 3: entende o pedido em inglês e devolve cada objeto em separado. */
+export const SAM3_VERSION = "d73db077226443ba4fafd34e233b3626b552eac2a433f90c7c32a9ac89bd9e72";
+export const SAM3_COST = 0.003;
 
 const PT_EN: Record<string, string> = {
   pessoa: "person", pessoas: "people", gente: "people", mulher: "woman", mulheres: "women", homem: "man", homens: "men",
