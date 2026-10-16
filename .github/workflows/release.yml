@@ -1,5 +1,10 @@
-# Gera o instalador do Windows. Rode manualmente na aba Actions ou crie uma
-# tag "v0.1.0" para publicar uma release (rascunho) com o .exe e o .msi.
+# Gera o instalador do Windows.
+# - Manual (aba Actions > Run workflow): só gera o instalador como artefato.
+# - Tag "v0.4.0" etc.: publica uma release com o instalador e o latest.json,
+#   que é o que a atualização automática do app consulta.
+# A atualização automática precisa do segredo TAURI_SIGNING_PRIVATE_KEY no
+# repositório (Settings > Secrets and variables > Actions). Sem ele, o build
+# funciona igual, só não gera os arquivos de atualização.
 name: Instalador Windows
 
 on:
@@ -13,6 +18,8 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,13 +37,17 @@ jobs:
       - run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
-        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: "Bravo Hub ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseBody: "Baixe o instalador .exe abaixo. Quem já tem o app recebe esta versão pela atualização automática."
+          releaseDraft: false
+          includeUpdaterJson: ${{ env.HAS_SIGNING_KEY == 'true' }}
+          args: ${{ env.HAS_SIGNING_KEY != 'true' && '--config src-tauri/tauri.no-updater.conf.json' || '' }}
 
       - name: Guardar instaladores
         uses: actions/upload-artifact@v4

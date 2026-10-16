@@ -8,6 +8,7 @@ import { useCosts } from "../store/costs";
 import { useSpaces, type FlowNode, type Space } from "../store/spaces";
 import { notify } from "../store/toasts";
 import { isTauri } from "../lib/platform";
+import { notifyDesktop } from "../lib/system";
 import { handleType, NODE_SPECS, type NodeOutputs } from "./ports";
 
 const controllers = new Map<string, AbortController>();
@@ -190,6 +191,9 @@ export function estimateNode(space: Space, node: FlowNode): Estimate {
 }
 
 const CONFIRM_USD = 1;
+const PARALLEL = 3;
+/** Jobs mais longos que isso avisam pelo Windows quando terminam. */
+const NOTIFY_AFTER_MS = 15_000;
 
 /** Pede confirmação quando a execução sai cara ou dispara várias gerações. */
 async function confirmCost(est: Estimate, what: string): Promise<boolean> {
@@ -216,18 +220,24 @@ export async function runNode(nodeId: string, confirmed = false): Promise<boolea
   const controller = new AbortController();
   controllers.set(nodeId, controller);
   setNode(nodeId, { status: "running", statusText: "Enviando…", error: undefined });
+  const started = Date.now();
+  const label = `${NODE_SPECS[node.type!].title} #${node.data.seq ?? 1}`;
   try {
     const outputs = await execute(space, node, {
       signal: controller.signal,
       onStatus: (statusText) => setNode(nodeId, { statusText }),
     });
     setNode(nodeId, { status: "done", statusText: undefined, outputs });
+    if (Date.now() - started > NOTIFY_AFTER_MS) notifyDesktop("Bravo Hub", `${label} terminou.`);
     return true;
   } catch (e) {
     const aborted = e instanceof DOMException && e.name === "AbortError";
     const message = aborted ? "Cancelado" : e instanceof Error ? e.message : String(e);
     setNode(nodeId, { status: aborted ? "idle" : "error", statusText: undefined, error: aborted ? undefined : message });
-    if (!aborted) notify(`${NODE_SPECS[node.type!].title}: ${message}`, "error");
+    if (!aborted) {
+      notify(`${label}: ${message}`, "error");
+      if (Date.now() - started > NOTIFY_AFTER_MS) notifyDesktop("Bravo Hub", `${label} falhou: ${message}`);
+    }
     return false;
   } finally {
     controllers.delete(nodeId);
@@ -283,16 +293,38 @@ async function runOrdered(spaceId: string, filter?: (space: Space) => Set<string
     return { jobs: acc.jobs + Math.max(e.jobs, 1), usd: acc.usd + e.usd };
   }, { jobs: 0, usd: 0 });
   if (!(await confirmCost(total, "O fluxo"))) return;
-  let ran = 0;
-  for (const id of ids) {
-    if (isRunning(id)) continue;
-    ran++;
-    if (!(await runNode(id, true))) {
-      notify("Fluxo interrompido no node com erro.", "error");
-      return;
+
+  // Roda em paralelo tudo que já tem as dependências prontas, até PARALLEL por vez.
+  const set = new Set(ids);
+  const deps = new Map(ids.map((id) => [id, [...reachable(space, id, "up")].filter((d) => d !== id && set.has(d))]));
+  const pending = new Set(ids);
+  const done = new Set<string>();
+  const failed = new Set<string>();
+  const running = new Map<string, Promise<string>>();
+  while (pending.size || running.size) {
+    for (const id of [...pending]) {
+      const need = deps.get(id)!;
+      if (need.some((d) => failed.has(d))) {
+        pending.delete(id);
+        failed.add(id);
+        continue;
+      }
+      if (running.size >= PARALLEL || !need.every((d) => done.has(d))) continue;
+      pending.delete(id);
+      if (isRunning(id)) {
+        done.add(id);
+        continue;
+      }
+      running.set(id, runNode(id, true).then((ok) => ((ok ? done : failed).add(id), id)));
     }
+    if (!running.size) break;
+    running.delete(await Promise.race(running.values()));
   }
-  if (ran) notify("Fluxo concluído.", "ok");
+  if (failed.size) notify(`${failed.size} node(s) não rodaram por erro em uma etapa anterior.`, "error");
+  else if (done.size) {
+    notify("Fluxo concluído.", "ok");
+    notifyDesktop("Bravo Hub", "Fluxo concluído.");
+  }
 }
 
 /** Roda todos os nodes executáveis em ordem, respeitando as dependências. */

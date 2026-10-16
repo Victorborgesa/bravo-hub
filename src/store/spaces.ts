@@ -44,26 +44,96 @@ function defaults(kind: NodeKind): BaseNodeData {
 const nextSeq = (nodes: FlowNode[], kind: NodeKind) =>
   nodes.filter((n) => n.type === kind).reduce((m, n) => Math.max(m, n.data.seq ?? 0), 0) + 1;
 
-function starterSpace(name: string): Space {
+type Draft = { nodes: FlowNode[]; edges: Edge[] };
+
+function node(kind: NodeKind, x: number, y: number, data: Partial<BaseNodeData> = {}, seq = 1): FlowNode {
+  return { id: uid(), type: kind, position: { x, y }, data: { ...defaults(kind), seq, ...data } };
+}
+
+function link(a: FlowNode, b: FlowNode, type: "text" | "image"): Edge {
+  return { id: uid(), source: a.id, sourceHandle: `out-${type}`, target: b.id, targetHandle: `in-${type}` };
+}
+
+export interface SpaceTemplate {
+  id: string;
+  title: string;
+  description: string;
+  steps: NodeKind[];
+  build: () => Draft;
+}
+
+export const TEMPLATES: SpaceTemplate[] = [
+  {
+    id: "blank",
+    title: "Em branco",
+    description: "Canvas vazio para montar do zero.",
+    steps: [],
+    build: () => ({ nodes: [], edges: [] }),
+  },
+  {
+    id: "text-image-video",
+    title: "Texto → Imagem → Vídeo",
+    description: "Um prompt vira imagem, e a imagem escolhida vira vídeo.",
+    steps: ["text", "image", "video"],
+    build: () => {
+      const t = node("text", 0, 60, { text: "Fachada de edifício residencial contemporâneo ao entardecer, concreto aparente e madeira, paisagismo com gramíneas, luz quente nas janelas, fotografia arquitetônica" });
+      const i = node("image", 420, 0);
+      const v = node("video", 900, 0, { prompt: "Câmera avança lentamente em direção à fachada, folhas balançando com o vento" });
+      return { nodes: [t, i, v], edges: [link(t, i, "text"), link(i, v, "image")] };
+    },
+  },
+  {
+    id: "render-variations-upscale",
+    title: "Render → Variações → Upscale",
+    description: "Suba um render, gere variações e faça o upscale da melhor.",
+    steps: ["upload", "image", "upscale"],
+    build: () => {
+      const u = node("upload", 0, 0);
+      const i = node("image", 420, 0, { count: 4, modelId: "nano-banana-pro", prompt: "Crie uma variação desta imagem mantendo a arquitetura, o enquadramento e os materiais, mudando apenas a luz e a atmosfera para fim de tarde" });
+      const x = node("upscale", 900, 0);
+      return { nodes: [u, i, x], edges: [link(u, i, "image"), link(i, x, "image")] };
+    },
+  },
+  {
+    id: "batch",
+    title: "Lote de imagens",
+    description: "Uma lista de prompts gera uma imagem para cada item.",
+    steps: ["list", "image"],
+    build: () => {
+      const l = node("list", 0, 0, { items: ["Fachada ao amanhecer com névoa leve", "Fachada ao meio-dia com céu azul limpo", "Fachada à noite com iluminação de destaque"] });
+      const i = node("image", 420, 0, { aspect: "16:9" });
+      return { nodes: [l, i], edges: [link(l, i, "text")] };
+    },
+  },
+  {
+    id: "animate",
+    title: "Animar imagem",
+    description: "Transforme um render pronto em vídeo.",
+    steps: ["upload", "video"],
+    build: () => {
+      const u = node("upload", 0, 0);
+      const v = node("video", 420, 0, { prompt: "Câmera faz uma órbita lenta ao redor do edifício, movimento estável de drone" });
+      return { nodes: [u, v], edges: [link(u, v, "image")] };
+    },
+  },
+  {
+    id: "assistant",
+    title: "Ideia → Assistente → Imagem",
+    description: "Descreva a ideia em português; o assistente escreve o prompt.",
+    steps: ["text", "assistant", "image"],
+    build: () => {
+      const t = node("text", 0, 40, { text: "Casa de campo moderna em meio à mata, com varanda ampla e piscina" });
+      const a = node("assistant", 380, 0);
+      const i = node("image", 820, 0, { aspect: "16:9" });
+      return { nodes: [t, a, i], edges: [link(t, a, "text"), link(a, i, "text")] };
+    },
+  },
+];
+
+function spaceFrom(name: string, templateId: string): Space {
   const now = Date.now();
-  const t = uid();
-  const i = uid();
-  const v = uid();
-  return {
-    id: uid(),
-    name,
-    createdAt: now,
-    updatedAt: now,
-    nodes: [
-      { id: t, type: "text", position: { x: 0, y: 60 }, data: { seq: 1, text: "Fachada de edifício residencial contemporâneo ao entardecer, concreto aparente e madeira, paisagismo com gramíneas, luz quente nas janelas, fotografia arquitetônica" } },
-      { id: i, type: "image", position: { x: 420, y: 0 }, data: { ...defaults("image"), seq: 1 } },
-      { id: v, type: "video", position: { x: 900, y: 0 }, data: { ...defaults("video"), seq: 1, prompt: "Câmera avança lentamente em direção à fachada, folhas balançando com o vento" } },
-    ],
-    edges: [
-      { id: uid(), source: t, sourceHandle: "out-text", target: i, targetHandle: "in-text" },
-      { id: uid(), source: i, sourceHandle: "out-image", target: v, targetHandle: "in-image" },
-    ],
-  };
+  const tpl = TEMPLATES.find((t) => t.id === templateId) ?? TEMPLATES[1];
+  return { id: uid(), name, createdAt: now, updatedAt: now, ...tpl.build() };
 }
 
 interface Snapshot {
@@ -78,7 +148,7 @@ interface SpacesState {
   past: Snapshot[];
   future: Snapshot[];
   open: (id: string | null) => void;
-  create: (name?: string) => string;
+  create: (name?: string, templateId?: string) => string;
   rename: (id: string, name: string) => void;
   remove: (id: string) => void;
   duplicate: (id: string) => void;
@@ -121,8 +191,8 @@ export const useSpaces = create<SpacesState>()(
         past: [],
         future: [],
         open: (id) => set({ activeId: id, past: [], future: [] }),
-        create: (name = "Novo space") => {
-          const space = starterSpace(name);
+        create: (name = "Novo space", templateId = "text-image-video") => {
+          const space = spaceFrom(name, templateId);
           set((st) => ({ spaces: [space, ...st.spaces], activeId: space.id, past: [], future: [] }));
           return space.id;
         },

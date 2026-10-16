@@ -2,6 +2,7 @@ import { useEdges, type NodeProps, type NodeTypes } from "@xyflow/react";
 import { ImagePlus, Loader2, Play, Plus, Settings2, Square, Trash2 } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { NodeShell } from "./NodeShell";
+import { PromptLibrary } from "./PromptLibrary";
 import { AspectPicker, ModelPicker, OptionPicker, Preview, Stepper, useInspector } from "./controls";
 import { useSpaces, type FlowNode } from "../../store/spaces";
 import { AUTO_ID, modelById } from "../../providers/catalog";
@@ -191,6 +192,7 @@ function ImageNode({ id, data, selected }: P) {
     <NodeShell id={id} kind="image" data={data} selected={selected} width={380}>
       <Preview items={data.gallery ?? []} selectedId={data.outputs?.images?.[0]?.id} onSelect={(m) => update({ outputs: { images: [m] } })} aspect={data.aspect} empty={null} />
       <div className="composer">
+        <PromptLibrary kind="image" current={data.prompt ?? ""} onInsert={(text) => update({ prompt: text })} />
         <Connected text={incoming.text} image={incoming.image} imageLabel="referência(s)" />
         <textarea className="composer-input nodrag nowheel" rows={2} placeholder="Descreva a imagem que você deseja gerar…" value={data.prompt ?? ""} onChange={(e) => update({ prompt: e.target.value })} />
         <div className="composer-bar">
@@ -223,6 +225,7 @@ function VideoNode({ id, data, selected }: P) {
     <NodeShell id={id} kind="video" data={data} selected={selected} width={380}>
       <Preview items={data.gallery ?? []} selectedId={data.outputs?.videos?.[0]?.id} onSelect={(m) => update({ outputs: { videos: [m] } })} aspect={data.aspect} empty={null} />
       <div className="composer">
+        <PromptLibrary kind="video" current={data.prompt ?? ""} onInsert={(text) => update({ prompt: text })} />
         <Connected text={incoming.text} image={incoming.image} imageLabel="quadro(s) inicial(is)" />
         <textarea className="composer-input nodrag nowheel" rows={2} placeholder="Movimento de câmera, ação, clima…" value={data.prompt ?? ""} onChange={(e) => update({ prompt: e.target.value })} />
         <div className="composer-bar">

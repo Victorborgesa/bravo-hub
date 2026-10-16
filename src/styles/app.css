@@ -114,6 +114,23 @@ select.field option, select.field optgroup { background: var(--surface); }
 .empty-title { font-weight: 300; text-transform: uppercase; font-size: 34px; color: var(--paper); }
 .empty-lead { color: var(--muted); }
 
+.modal-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 40px; background: rgba(14, 15, 12, 0.72); backdrop-filter: blur(8px); }
+.modal { width: min(920px, 100%); max-height: 100%; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-shadow: var(--shadow); }
+.modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 24px; }
+.modal-name { display: block; margin-top: 10px; width: 100%; min-width: 420px; background: transparent; border: 0; border-bottom: 1px solid var(--line-strong); outline: none; font-weight: 300; font-size: 32px; text-transform: uppercase; color: var(--paper); padding: 4px 0 10px; }
+.modal-name:focus { border-color: var(--paper); }
+.modal-name::placeholder { color: #5f6257; }
+.tpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tpl { display: flex; flex-direction: column; gap: 8px; padding: 18px; text-align: left; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); transition: border-color 0.25s, transform 0.3s var(--ease), background 0.25s; }
+.tpl:hover { border-color: var(--paper); transform: translateY(-3px); background: #22241e; }
+.tpl-flow { display: flex; align-items: center; min-height: 34px; margin-bottom: 6px; }
+.tpl-step { display: inline-flex; align-items: center; }
+.tpl-arrow { color: var(--muted); margin: 0 6px; }
+.tpl-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); }
+.tpl-empty { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; border: 1px dashed var(--line-strong); color: var(--muted); }
+.tpl-title { font-size: 15px; color: var(--paper); }
+.tpl-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
 /* ---------- Biblioteca ---------- */
 .masonry { columns: 4 240px; column-gap: 14px; }
 .masonry-item { display: block; width: 100%; margin: 0 0 14px; break-inside: avoid; position: relative; border-radius: var(--radius); overflow: hidden; background: var(--surface); }
@@ -153,6 +170,8 @@ select.field option, select.field optgroup { background: var(--surface); }
 .secret-row .btn { height: 36px; }
 
 .models-table { margin-top: 56px; }
+.storage-row { display: flex; align-items: center; gap: 24px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 14px; }
+.storage-row .btn { margin-left: auto; }
 .small-lead { font-size: 13px; line-height: 1.6; max-width: 720px; margin: -6px 0 18px; }
 .id-cell { width: 42%; }
 .field.mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; padding: 6px 9px; }
@@ -295,7 +314,23 @@ select.field option, select.field optgroup { background: var(--surface); }
 .drop-zone { transition: box-shadow 0.2s; }
 .drop-zone.is-over { box-shadow: inset 0 0 0 2px var(--paper); }
 
-.composer { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.composer { position: relative; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.prompt-lib { position: absolute; top: 6px; right: 8px; z-index: 5; }
+.composer .composer-input { padding-right: 30px; }
+.lib-btn { width: 28px; height: 28px; color: var(--muted); }
+.lib-btn.is-open, .lib-btn:hover { color: var(--paper); }
+.lib-pop { right: 0; width: 320px; display: flex; flex-direction: column; max-height: 380px; }
+.lib-scroll { max-height: 250px; }
+.lib-row { display: flex; align-items: flex-start; gap: 4px; border-radius: 8px; }
+.lib-row:hover { background: rgba(255, 255, 255, 0.05); }
+.lib-row .icon-btn { width: 26px; height: 26px; opacity: 0; margin-top: 6px; }
+.lib-row:hover .icon-btn { opacity: 1; }
+.lib-pick { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; text-align: left; font-size: 13px; color: var(--text); }
+.lib-pick small { font-size: 11px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.lib-foot { padding: 8px; border-top: 1px solid var(--line); }
+.lib-foot .add-row { width: 100%; margin: 0; }
+.lib-foot .add-row:disabled { opacity: 0.5; cursor: default; }
+.lib-save { display: flex; gap: 6px; }
 .composer-input { width: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--text); font-size: 13.5px; line-height: 1.5; padding: 4px 2px; }
 .composer-input::placeholder, .text-area::placeholder { color: #7a7d70; }
 .composer-bar { display: flex; align-items: center; gap: 5px; }
@@ -392,6 +427,12 @@ kbd { font-family: var(--font); font-size: 10.5px; padding: 1px 5px; border-radi
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 .node-error { display: flex; gap: 6px; align-items: flex-start; margin: 0 12px 12px; padding: 8px 10px; font-size: 12px; line-height: 1.4; color: #efc2b6; background: rgba(207, 127, 107, 0.12); border-radius: 8px; overflow: hidden; word-break: break-word; }
 .node-error svg { flex: none; margin-top: 1px; }
+.node-error { flex-wrap: wrap; }
+.node-error > span { flex: 1; min-width: 60%; }
+.retry { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 3px 9px; border-radius: 20px; border: 1px solid rgba(239, 194, 182, 0.4); color: #efc2b6; font-size: 11.5px; }
+.retry:hover { background: rgba(239, 194, 182, 0.12); }
+.update-banner { position: fixed; z-index: 150; left: 18px; bottom: 18px; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line-strong); box-shadow: var(--shadow); font-size: 13px; }
+.btn.small { height: 30px; padding: 0 12px; font-size: 12.5px; }
 .node-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; overflow: hidden; }
 .node-progress::after { content: ""; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--port-text), transparent); animation: sweep 1.4s var(--ease) infinite; }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(260%); } }

@@ -59,14 +59,30 @@ export async function poll<T>(
   { interval = 5000, timeout = 20 * 60_000 } = {},
 ): Promise<T> {
   const start = Date.now();
+  let failures = 0;
   for (;;) {
-    const result = await check();
+    let result: T | null = null;
+    try {
+      result = await check();
+      failures = 0;
+    } catch (e) {
+      // Uma falha de rede ou um 429/5xx no meio da espera não perde o job:
+      // o fabricante continua processando, então tentamos de novo algumas vezes.
+      if (!isTransient(e) || ++failures > 5) throw e;
+      ctx?.onStatus?.("Conexão instável, tentando de novo…");
+    }
     if (result !== null) return result;
     if (Date.now() - start > timeout) throw new Error("Tempo esgotado esperando o resultado");
     const secs = Math.round((Date.now() - start) / 1000);
     ctx?.onStatus?.(`Processando… ${secs}s`);
     await sleep(interval, ctx?.signal);
   }
+}
+
+function isTransient(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === "AbortError") return false;
+  if (e instanceof ProviderError) return /^(408|425|429|500|502|503|504):/.test(e.message);
+  return e instanceof TypeError; // fetch lança TypeError em falha de rede
 }
 
 /** Converte "16:9" no tamanho mais próximo aceito por APIs que pedem pixels. */

@@ -8,6 +8,7 @@ import { Settings } from "./views/Settings";
 import { Lightbox, SpaceCanvas } from "./canvas/SpaceCanvas";
 import { useSpaces } from "./store/spaces";
 import { useToasts } from "./store/toasts";
+import { UpdateBanner } from "./views/UpdateBanner";
 
 const PAGES: Record<View, () => JSX.Element> = {
   spaces: SpacesHome,
@@ -77,6 +78,7 @@ export function App() {
       </main>
       <Lightbox />
       <Toasts />
+      <UpdateBanner />
     </div>
   );
 }

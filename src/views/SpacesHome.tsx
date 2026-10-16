@@ -1,4 +1,6 @@
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
+import { TemplatePicker } from "./TemplatePicker";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { useSpaces } from "../store/spaces";
 import { relativeDate } from "../lib/format";
@@ -6,19 +8,20 @@ import { MediaView } from "../canvas/nodes/controls";
 import { PageHead } from "./PageHead";
 
 export function SpacesHome() {
-  const { spaces, create, open, remove, duplicate } = useSpaces();
+  const { spaces, open, remove, duplicate } = useSpaces();
+  const [picking, setPicking] = useState(false);
   return (
     <div className="page">
       <PageHead index="001" eyebrow="Spaces" title="Fluxos de criação" lead="Conecte texto, imagem, vídeo e upscale num canvas infinito. Cada space guarda o fluxo e tudo que ele gerou.">
-        <button className="btn btn-primary" onClick={() => create()}>
+        <button className="btn btn-primary" onClick={() => setPicking(true)}>
           <Plus size={15} /> Novo space
         </button>
       </PageHead>
 
       {spaces.length === 0 ? (
-        <motion.button className="empty-space" onClick={() => create("Meu primeiro space")} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+        <motion.button className="empty-space" onClick={() => setPicking(true)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
           <span className="empty-title">Comece pelo primeiro space</span>
-          <span className="empty-lead">Ele já vem com um fluxo de exemplo: texto → imagem → vídeo.</span>
+          <span className="empty-lead">Escolha um fluxo pronto ou comece do zero.</span>
         </motion.button>
       ) : (
         <ul className="space-list">
@@ -60,6 +63,7 @@ export function SpacesHome() {
           })}
         </ul>
       )}
+      <AnimatePresence>{picking && <TemplatePicker onClose={() => setPicking(false)} />}</AnimatePresence>
     </div>
   );
 }

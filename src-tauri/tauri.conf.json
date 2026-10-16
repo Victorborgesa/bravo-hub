@@ -55,6 +55,18 @@
           "PortugueseBR"
         ]
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFDRkNGNzdGRkZGRDgyMjIKUldRaWd2My9mL2Y4SFAzRUFOKytYa21CZnRhcUpGK0pFYjFZNW55SmZlVmxUajRQVDNCd1BlQUgK",
+      "endpoints": [
+        "https://github.com/Victorborgesa/bravo-hub/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 import { Handle, NodeToolbar, Position, useEdges, useStore } from "@xyflow/react";
 import { motion, AnimatePresence } from "motion/react";
-import { AlertTriangle, ChevronDown, Copy, Download, Expand, Loader2, Play, Settings2, Square, Trash2, Type, Image as ImageIcon, Clapperboard } from "lucide-react";
+import { AlertTriangle, ChevronDown, Copy, Download, Expand, Loader2, Play, Settings2, Square, Trash2, RotateCcw, Type, Image as ImageIcon, Clapperboard } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cancelNode, runFrom, runNode, runUpTo } from "../engine";
 import { handleId, NODE_SPECS, type BaseNodeData, type NodeKind, type PortType } from "../ports";
@@ -123,7 +123,13 @@ export function NodeShell({ id, kind, data, selected, children, width = 320 }: P
         <AnimatePresence>
           {data.status === "error" && data.error && (
             <motion.div className="node-error" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
-              <AlertTriangle size={13} /> <span>{data.error}</span>
+              <AlertTriangle size={13} />
+              <span>{data.error}</span>
+              {spec.runnable && (
+                <button className="retry nodrag" onClick={() => runNode(id)}>
+                  <RotateCcw size={12} /> Tentar de novo
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

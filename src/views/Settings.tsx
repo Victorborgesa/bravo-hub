@@ -7,6 +7,7 @@ import type { ProviderId } from "../providers/types";
 import { isTauri, secretDelete, secretGet, secretSet } from "../lib/platform";
 import { notify } from "../store/toasts";
 import { PageHead } from "./PageHead";
+import { deleteMedia, formatBytes, scanMedia, type MediaUsage } from "../lib/storage";
 
 function SecretField({ secretKey, label, onChange }: { secretKey: string; label: string; onChange: () => void }) {
   const [saved, setSaved] = useState(false);
@@ -127,6 +128,47 @@ function ModelIds() {
   );
 }
 
+function Storage() {
+  const [usage, setUsage] = useState<MediaUsage | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = () => scanMedia().then(setUsage).catch(() => setUsage(null));
+  useEffect(() => { refresh(); }, []);
+  if (!isTauri) return null;
+  return (
+    <section className="models-table">
+      <h2 className="section-title">Armazenamento</h2>
+      <p className="muted small-lead">
+        Tudo que o Bravo Hub gera fica salvo neste computador. Imagens e vídeos de nodes ou spaces que você apagou continuam ocupando espaço até serem limpos aqui. O que estiver em algum space nunca é apagado.
+      </p>
+      {usage && (
+        <div className="storage-row">
+          <span>{usage.files} arquivos · {formatBytes(usage.bytes)}</span>
+          <span className="muted">{usage.orphanFiles.length} sem uso · {formatBytes(usage.orphanBytes)}</span>
+          <button
+            className="btn btn-ghost"
+            disabled={busy || !usage.orphanFiles.length}
+            onClick={async () => {
+              if (!confirm(`Apagar ${usage.orphanFiles.length} arquivo(s) sem uso (${formatBytes(usage.orphanBytes)})?`)) return;
+              setBusy(true);
+              try {
+                await deleteMedia(usage.orphanFiles);
+                notify("Arquivos sem uso apagados.", "ok");
+              } catch (e) {
+                notify(`Não consegui apagar: ${e instanceof Error ? e.message : e}`, "error");
+              } finally {
+                setBusy(false);
+                refresh();
+              }
+            }}
+          >
+            Limpar arquivos sem uso
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Settings() {
   return (
     <div className="page">
@@ -143,6 +185,7 @@ export function Settings() {
         ))}
       </div>
       <ModelIds />
+      <Storage />
     </div>
   );
 }
